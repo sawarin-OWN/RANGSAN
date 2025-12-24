@@ -514,7 +514,7 @@
                 <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md text-center slide-up-modal">
                     <img src={LOGO_URL} className="w-28 h-28 rounded-full object-cover mx-auto mb-6 shadow-lg border-4 border-gray-100" />
                     <h2 className="text-2xl font-bold mb-6 uppercase tracking-wide">Partner Portal</h2>
-                    <form onSubmit={handleLogin} className="space-y-4 font-normal text-left">
+                    <form onSubmit={handleLogin} className="space-y-4 text-left">
                         <div>
                             <label className="text-xs font-bold text-gray-400 block mb-1">EMAIL</label>
                             <input className="w-full px-4 py-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition" value={loginForm.email} onChange={e => setLoginForm({...loginForm, email: e.target.value})} required />
@@ -544,7 +544,7 @@
             <div className="flex flex-col h-dvh overflow-hidden bg-gray-100">
                 <div className="flex flex-1 overflow-hidden relative text-gray-800">
                     
-                    {/* SIDEBAR - Fixed z-index to overlay bottom nav on mobile */}
+                    {/* SIDEBAR */}
                     <aside className={`fixed lg:static w-72 bg-gray-900 text-gray-400 flex flex-col h-full z-50 transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} shadow-xl`}>
                         <div className="p-6 border-b border-gray-800 text-center">
                             <div className="w-16 h-16 bg-gray-700 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-xl font-bold">{(user?.username||'U').charAt(0).toUpperCase()}</div>
@@ -574,8 +574,8 @@
                     {isSidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>}
 
                     <div className="flex-1 flex flex-col min-w-0 relative h-full">
-                        {/* Mobile Header Adjusted: Added pt-safe and pt-6 to move content down more */}
-                        <header className="bg-white shadow-sm h-auto min-h-[70px] flex items-center justify-between px-4 z-20 shrink-0 pt-safe pt-6 pb-4">
+                        {/* Mobile Header Adjusted: Added pt-safe and pt-12 to move content down more clearly */}
+                        <header className="bg-white shadow-sm h-auto min-h-[70px] flex items-center justify-between px-4 z-20 shrink-0 pt-safe pt-12 pb-4">
                             <div className="flex items-center">
                                 <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden text-gray-600 mr-4 p-2 rounded-full transition"><Icon icon="fa-bars" className="text-xl"/></button>
                                 <h2 className="text-lg font-bold text-gray-800 capitalize truncate">{page.replace('admin_','').replace('_',' ')}</h2>
@@ -645,7 +645,7 @@
                                 </div>
                             )}
 
-                            {page === 'admin_orders' && (<div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800 font-normal">
+                            {page === 'admin_orders' && (<div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800">
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 text-sm font-bold">
                                     <div className="flex flex-wrap items-center gap-4 mb-4 font-normal">
                                         <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
@@ -709,7 +709,7 @@
                                 <div className="fade-in max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-800 font-bold">
                                     <h3 className="text-xl font-bold mb-6 border-b pb-2"><Icon icon="fa-user-circle" className="mr-1"/> แก้ไขข้อมูลส่วนตัว</h3>
                                     <div className="space-y-4 font-normal">
-                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
+                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
                                         <div><label className="block font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} /></div>
                                         <div><label className="block font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง</label><textarea className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" rows="3" value={profileForm.address} onChange={e => setProfileForm({...profileForm, address: e.target.value})}></textarea></div>
                                         <div className="pt-4 font-bold"><button onClick={handleUpdateProfile} className="bg-gray-900 text-white px-10 py-3 rounded-xl font-bold hover:bg-black transition shadow-lg active:scale-95 uppercase tracking-wider">บันทึกข้อมูลส่วนตัว</button></div>
@@ -795,7 +795,7 @@
                                         ))}
                                      </div>
                                      <div className="border-t pt-3 space-y-1.5 font-normal">
-                                         <div className="flex justify-between text-gray-500 font-normal"><span>ค่าสินค้า</span><span>฿{calculateSubtotal().toLocaleString()}</span></div>
+                                         <div className="flex justify-between text-gray-500"><span>ค่าสินค้า</span><span>฿{calculateSubtotal().toLocaleString()}</span></div>
                                          <div className="flex justify-between text-blue-500 font-bold"><span>ค่าจัดส่ง</span><span>฿{shippingCost.toLocaleString()}</span></div>
                                          {discountAmount > 0 && <div className="flex justify-between text-rose-500 font-bold"><span>ส่วนลดคูปอง</span><span>-฿{discountAmount.toLocaleString()}</span></div>}
                                          <div className="flex justify-between font-bold text-lg pt-3 border-t border-dashed mt-3 text-emerald-800 uppercase tracking-wide"><span>ยอดชำระสุทธิ</span><span>฿{calculateNetTotal().toLocaleString()}</span></div>
@@ -821,7 +821,7 @@
                                         <div className="text-2xl font-mono font-bold tracking-[3px] mb-4 flex items-center justify-center gap-2 font-bold" onClick={() => { navigator.clipboard.writeText('189-2-88192-4'); Toast.fire({ icon: 'success', title: 'คัดลอกเลขบัญชีแล้ว' }); }}>189-2-88192-4 <Icon icon="fa-copy" className="opacity-50 text-sm cursor-pointer hover:opacity-100 transition"/></div>
                                         <div className="text-sm font-bold opacity-90 uppercase tracking-wide">บจก. ไชยจันลา</div>
                                     </div>
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-2xl font-normal"></div>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                  </div>
                                  <div className="border-2 border-dashed border-gray-300 p-8 rounded-3xl text-center bg-white cursor-pointer hover:border-gray-800 transition-colors group relative shadow-inner font-normal" onClick={()=>document.getElementById('final-slip-input-v23').click()}>
                                     <input id="final-slip-input-v23" type="file" accept="image/*" hidden onChange={(e)=>setSlipFile(e.target.files[0])} />
