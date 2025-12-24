@@ -233,12 +233,11 @@
             if (editingOrder && allOrders.length > 0) {
                 const originalOrder = allOrders.find(o => o.id === editingOrder.id);
                 if (originalOrder) {
-                    const originalTotal = Number(originalOrder.total) || 0;
                     const newSubtotal = editingOrder.items.reduce((s,i)=>s+i.price*i.qty,0);
                     let discVal = 0; const match = String(originalOrder.discountInfo).match(/-(\d+)B/); if (match) discVal = parseInt(match[1]);
                     const shipping = Number(originalOrder.shippingCost) || 0; 
                     const newTotal = Math.max(0, newSubtotal - discVal + shipping);
-                    setEditingOrderDiff(newTotal - originalTotal);
+                    setEditingOrderDiff(newTotal - (Number(originalOrder.total) || 0));
                 }
             }
         }, [editingOrder, allOrders]);
@@ -512,7 +511,7 @@
         if (isLoading && !document.querySelector('.swal2-container')) return <div className="flex items-center justify-center h-dvh bg-gray-100 z-50"><div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-800 border-t-transparent"></div></div>;
 
         if (page === 'login') return (
-            <div className="flex items-center justify-center h-dvh bg-gray-100 p-4 text-gray-800 font-normal">
+            <div className="flex items-center justify-center h-dvh bg-gray-100 p-4 text-gray-800">
                 <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md text-center slide-up-modal">
                     <img src={LOGO_URL} className="w-28 h-28 rounded-full object-cover mx-auto mb-6 shadow-lg border-4 border-gray-100" />
                     <h2 className="text-2xl font-bold mb-6 uppercase tracking-wide">Partner Portal</h2>
@@ -551,7 +550,7 @@
                         <div className="p-6 border-b border-gray-800 text-center">
                             <div className="w-16 h-16 bg-gray-700 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-xl font-bold">{(user?.username||'U').charAt(0).toUpperCase()}</div>
                             <h1 className="text-white font-bold truncate">{user?.username}</h1>
-                            <span className="text-xs bg-gray-800 px-2 py-1 rounded mt-2 border border-gray-700 inline-block font-normal">{user?.role === 'admin' ? 'Administrator' : `Branch: ${user?.branchId}`}</span>
+                            <span className="text-xs bg-gray-800 px-2 py-1 rounded mt-2 border border-gray-700 inline-block">{user?.role === 'admin' ? 'Administrator' : `Branch: ${user?.branchId}`}</span>
                         </div>
                         <nav className="flex-1 py-4 overflow-y-auto space-y-1">
                             {user?.role === 'admin' ? (
@@ -592,7 +591,7 @@
                                             <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
                                             <input className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" placeholder="ค้นหาชื่อสินค้า..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
                                         </div>
-                                        <div className="flex gap-2 overflow-x-auto scrollbar-hide text-gray-800 font-normal">
+                                        <div className="flex gap-2 overflow-x-auto scrollbar-hide text-gray-800">
                                             {['All', ...new Set(products.map(p => p.category))].map(cat => <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${selectedCategory===cat?'bg-gray-800 text-white shadow':'bg-white border text-gray-600'}`}>{cat}</button>)}
                                         </div>
                                     </div>
@@ -664,9 +663,9 @@
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                         <h3 className="text-lg font-bold mb-4 border-b pb-2 text-emerald-800 font-bold"><Icon icon="fa-edit" className="mr-1"/> ข้อมูลผู้เสียภาษี</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-sm font-normal">
-                                            <div><label className="text-xs font-bold text-gray-400 uppercase">ชื่อบริษัท / ผู้เสียภาษี</label><input className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition font-normal" value={taxForm.taxName} onChange={e => setTaxForm({...taxForm, taxName: e.target.value})} placeholder="ระบุชื่อตามใบ ภ.พ. 20..." /></div>
-                                            <div><label className="text-xs font-bold text-gray-400 uppercase">เลขประจำตัวผู้เสียภาษี</label><input className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition font-normal" value={taxForm.taxId} onChange={e => setTaxForm({...taxForm, taxId: e.target.value})} placeholder="ระบุเลข 13 หลัก" /></div>
-                                            <div className="md:col-span-2 font-normal"><label className="text-xs font-bold text-gray-400 uppercase">ที่อยู่ (ตามหน้าบัตรหรือ ภ.พ. 20)</label><textarea className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition font-normal" rows="2" value={taxForm.taxAddr} onChange={e => setTaxForm({...taxForm, taxAddr: e.target.value})} placeholder="ระบุที่อยู่จัดส่งใบกำกับภาษี..." /></div>
+                                            <div><label className="text-xs font-bold text-gray-400 uppercase">ชื่อบริษัท / ผู้เสียภาษี</label><input className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition" value={taxForm.taxName} onChange={e => setTaxForm({...taxForm, taxName: e.target.value})} placeholder="ระบุชื่อตามใบ ภ.พ. 20..." /></div>
+                                            <div><label className="text-xs font-bold text-gray-400 uppercase">เลขประจำตัวผู้เสียภาษี</label><input className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition" value={taxForm.taxId} onChange={e => setTaxForm({...taxForm, taxId: e.target.value})} placeholder="ระบุเลข 13 หลัก" /></div>
+                                            <div className="md:col-span-2 font-normal"><label className="text-xs font-bold text-gray-400 uppercase">ที่อยู่ (ตามหน้าบัตรหรือ ภ.พ. 20)</label><textarea className="w-full border rounded p-3 mt-1 outline-none focus:ring-1 focus:ring-gray-800 transition" rows="2" value={taxForm.taxAddr} onChange={e => setTaxForm({...taxForm, taxAddr: e.target.value})} placeholder="ระบุที่อยู่จัดส่งใบกำกับภาษี..." /></div>
                                         </div>
                                         <button onClick={handleUpdateTax} className="bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition active:scale-95 shadow-md font-bold uppercase tracking-wider">บันทึกข้อมูลภาษี</button>
                                     </div>
@@ -678,9 +677,9 @@
                                 <div className="fade-in max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-800 font-bold">
                                     <h3 className="text-xl font-bold mb-6 border-b pb-2 font-bold"><Icon icon="fa-user-circle" className="mr-1"/> แก้ไขข้อมูลส่วนตัว</h3>
                                     <div className="space-y-4 font-normal">
-                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
-                                        <div><label className="block font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} /></div>
-                                        <div><label className="block font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง</label><textarea className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" rows="3" value={profileForm.address} onChange={e => setProfileForm({...profileForm, address: e.target.value})}></textarea></div>
+                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
+                                        <div><label className="block font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} /></div>
+                                        <div><label className="block font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง</label><textarea className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" rows="3" value={profileForm.address} onChange={e => setProfileForm({...profileForm, address: e.target.value})}></textarea></div>
                                         <div className="pt-4 font-bold"><button onClick={handleUpdateProfile} className="bg-gray-900 text-white px-10 py-3 rounded-xl font-bold hover:bg-black transition shadow-lg active:scale-95 uppercase tracking-wider">บันทึกข้อมูลส่วนตัว</button></div>
                                     </div>
                                 </div>
@@ -780,7 +779,7 @@
                                          )}
                                      </div>
                                  </div>
-                                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 font-normal">
+                                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2 font-bold">ที่อยู่จัดส่งสินค้า</label>
                                     <div className="flex gap-2 items-start font-normal"><Icon icon="fa-map-marker-alt" className="text-rose-500 mt-1 shrink-0"/><div className="text-gray-700 leading-relaxed text-xs">{user?.address || "กรุณากรอกข้อมูลที่อยู่ในเมนูโปรไฟล์"}</div></div>
                                  </div>
@@ -790,7 +789,7 @@
                                         <div className="text-2xl font-mono font-bold tracking-[3px] mb-4 flex items-center justify-center gap-2 font-bold" onClick={() => { navigator.clipboard.writeText('189-2-88192-4'); Toast.fire({ icon: 'success', title: 'คัดลอกเลขบัญชีแล้ว' }); }}>189-2-88192-4 <Icon icon="fa-copy" className="opacity-50 text-sm cursor-pointer hover:opacity-100 transition"/></div>
                                         <div className="text-sm font-bold opacity-90 uppercase tracking-wide">บจก. ไชยจันลา</div>
                                     </div>
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-2xl font-normal"></div>
                                  </div>
                                  <div className="border-2 border-dashed border-gray-300 p-8 rounded-3xl text-center bg-white cursor-pointer hover:border-gray-800 transition-colors group relative shadow-inner font-normal" onClick={()=>document.getElementById('final-slip-input-v23').click()}>
                                     <input id="final-slip-input-v23" type="file" accept="image/*" hidden onChange={(e)=>setSlipFile(e.target.files[0])} />
