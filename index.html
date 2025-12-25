@@ -747,9 +747,37 @@
         const openPrintWindow = (content) => {
             const printWindow = window.open('', '_blank', 'width=850,height=1100');
             if (printWindow) {
-                 printWindow.document.write(content);
-                 printWindow.document.close();
-                 printWindow.onload = () => { setTimeout(() => { printWindow.print(); Swal.close(); }, 1000); };
+                // เพิ่มปุ่มปิดสำหรับมือถือ (แสดงเฉพาะตอนดู ไม่แสดงตอนพิมพ์)
+                const closeButton = `
+                    <div id="close-print-btn" style="position: fixed; top: 15px; right: 15px; z-index: 99999; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); padding: 10px; border-radius: 50px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                        <button onclick="window.close()" style="background: #dc2626; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-size: 16px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: all 0.2s;">
+                            <span style="font-size: 20px;">✕</span> ปิด
+                        </button>
+                    </div>
+                    <style>
+                        @media screen {
+                            #close-print-btn { display: block !important; }
+                        }
+                        @media print {
+                            #close-print-btn { display: none !important; }
+                        }
+                        button:hover {
+                            background: #b91c1c !important;
+                            transform: scale(1.05);
+                        }
+                        button:active {
+                            transform: scale(0.95);
+                        }
+                    </style>
+                `;
+                printWindow.document.write(closeButton + content);
+                printWindow.document.close();
+                printWindow.onload = () => { 
+                    setTimeout(() => { 
+                        printWindow.print(); 
+                        Swal.close(); 
+                    }, 1000); 
+                };
              } else { 
                  Swal.close();
                  showError('เบราว์เซอร์บล็อกการเปิดหน้าต่างใหม่ กรุณาอนุญาต Pop-up'); 
