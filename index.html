@@ -62,7 +62,7 @@
       
       // --- Constants ---
       // ** Updated API URL (Latest 25/12/2025) **
-      const API_URL = "https://script.google.com/macros/s/AKfycbwnFBMamZKsQkx9uaVQV3JDh9uKVf_cakgAdJStwnpnwU-6jy76QWQY5HO6ZXe3wIJ2/exec"; 
+      const API_URL = "https://script.google.com/macros/s/AKfycbzbBLBz9hl7znFtgeT-S7DIsBzE6hCIrb7GcTbHyR8q2BBCH1kjdXzCLoLvxz5svlkx/exec"; 
       const THEME_COLOR = '#1f2937';
       const LOGO_URL = "https://storage.googleapis.com/glide-prod.appspot.com/uploads-v2/ZPQ1QSrzcL0RxpekC12M/pub/1RU9DQXtscl4zSttoqYd.jpg";
       
@@ -771,7 +771,7 @@
                     </style>
                 `;
                 printWindow.document.write(closeButton + content);
-                printWindow.document.close();
+                 printWindow.document.close();
                 printWindow.onload = () => { 
                     setTimeout(() => { 
                         printWindow.print(); 
