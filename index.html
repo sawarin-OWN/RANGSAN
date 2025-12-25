@@ -415,8 +415,8 @@
             });
         };
 
-        const updateQty = (id, delta) => { 
-            const item = cart.find(i => i.id === id); 
+        const updateQty = (id, delta) => {
+            const item = cart.find(i => i.id === id);
             if (item) { 
                 const newQty = item.qty + delta; 
                 if (newQty <= 0) { setCart(cart.filter(i => i.id !== id)); }
@@ -427,6 +427,29 @@
                 }
                 setAppliedCoupon(null); setDiscountAmount(0); 
             } 
+        };
+
+        const updateQtyDirect = (id, value) => {
+            const item = cart.find(i => i.id === id);
+            if (!item) return;
+
+            // แปลงเป็นตัวเลข
+            let newQty = parseInt(value) || 0;
+            
+            // ตรวจสอบว่าต้องเป็นตัวเลขและมากกว่า 0
+            if (isNaN(newQty) || newQty < 1) {
+                newQty = 1; // ตั้งค่าเป็น 1 ถ้าน้อยกว่า 1
+            }
+
+            const originalProd = products.find(p => p.id === id);
+            if (originalProd && newQty > originalProd.stock) {
+                showError(`เกินสต็อกที่มีอยู่ (${originalProd.stock})`);
+                newQty = originalProd.stock; // ตั้งค่าเป็นสต็อกสูงสุด
+            }
+
+            setCart(cart.map(i => i.id === id ? { ...i, qty: newQty } : i));
+            setAppliedCoupon(null);
+            setDiscountAmount(0);
         };
 
         const openEditModal = (order) => { setEditingOrder(JSON.parse(JSON.stringify(order))); setIsEditModalOpen(true); };
@@ -1913,10 +1936,34 @@
                                             </div>
                                             <div className="flex justify-between items-end font-normal">
                                                 <div className="font-bold text-emerald-700 text-base font-bold">฿{(item.price*item.qty).toLocaleString()}</div>
-                                                <div className="flex items-center gap-3 bg-gray-100 px-2 py-1 rounded-lg border font-bold">
-                                                    <button onClick={()=>updateQty(item.id,-1)} className="font-bold text-gray-500 hover:text-gray-800 transition px-1">-</button>
-                                                    <span className="text-xs font-bold w-4 text-center font-bold text-gray-800">{item.qty}</span>
-                                                    <button onClick={()=>updateQty(item.id,1)} className="font-bold text-gray-500 hover:text-gray-800 transition px-1">+</button>
+                                                <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 rounded-lg border font-bold">
+                                                    <button 
+                                                        onClick={()=>updateQty(item.id,-1)} 
+                                                        className="font-bold text-gray-500 hover:text-gray-800 transition px-2 text-lg"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max={products.find(p => p.id === item.id)?.stock || 999}
+                                                        value={item.qty}
+                                                        onChange={(e) => updateQtyDirect(item.id, e.target.value)}
+                                                        onBlur={(e) => {
+                                                            const value = parseInt(e.target.value) || 1;
+                                                            if (value < 1) {
+                                                                updateQtyDirect(item.id, 1);
+                                                            }
+                                                        }}
+                                                        className="text-xs font-bold w-12 text-center font-bold text-gray-800 bg-transparent border-none outline-none focus:ring-0 p-0"
+                                                        style={{ WebkitAppearance: 'textfield', MozAppearance: 'textfield' }}
+                                                    />
+                                                    <button 
+                                                        onClick={()=>updateQty(item.id,1)} 
+                                                        className="font-bold text-gray-500 hover:text-gray-800 transition px-2 text-lg"
+                                                    >
+                                                        +
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
