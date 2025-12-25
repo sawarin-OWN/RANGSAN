@@ -61,7 +61,8 @@
       const { useState, useEffect, useMemo, useCallback } = React;
       
       // --- Constants ---
-      const API_URL = "https://script.google.com/macros/s/AKfycbwaSHwIxiPxnVJzxgr9zHIX393ko-O6UAsC7e6B5L7G10Re3W-pMPck_KiO7oEDVCtF/exec"; 
+      // ** Updated API URL (Latest 25/12/2025) **
+      const API_URL = "https://script.google.com/macros/s/AKfycbwnFBMamZKsQkx9uaVQV3JDh9uKVf_cakgAdJStwnpnwU-6jy76QWQY5HO6ZXe3wIJ2/exec"; 
       const THEME_COLOR = '#1f2937';
       const LOGO_URL = "https://storage.googleapis.com/glide-prod.appspot.com/uploads-v2/ZPQ1QSrzcL0RxpekC12M/pub/1RU9DQXtscl4zSttoqYd.jpg";
       
@@ -124,6 +125,7 @@
         const [products, setProducts] = useState([]);
         const [orders, setOrders] = useState([]); 
         const [allOrders, setAllOrders] = useState([]); 
+        const [purchaseOrders, setPurchaseOrders] = useState([]);
         const [isLoading, setIsLoading] = useState(true);
         const [isSidebarOpen, setIsSidebarOpen] = useState(false);
         const [isCartOpen, setIsCartOpen] = useState(false); 
@@ -131,12 +133,23 @@
         const [isEditModalOpen, setIsEditModalOpen] = useState(false);
         const [editingOrder, setEditingOrder] = useState(null);
         const [editingOrderDiff, setEditingOrderDiff] = useState(0); 
+        const [isPOModalOpen, setIsPOModalOpen] = useState(false);
+        const [isReceivePOModalOpen, setIsReceivePOModalOpen] = useState(false);
+        const [selectedPO, setSelectedPO] = useState(null);
+        const [poItems, setPoItems] = useState([]);
+        const [poSupplier, setPoSupplier] = useState('');
+        const [poExpectedDate, setPoExpectedDate] = useState('');
+        const [poNotes, setPoNotes] = useState('');
+        const [poStatusFilter, setPoStatusFilter] = useState('All');
+        const [poProductSearch, setPoProductSearch] = useState('');
+        const [stockAlertSearch, setStockAlertSearch] = useState('');
+        const [poSearchTerm, setPoSearchTerm] = useState(''); 
 
         // Password visibility state
         const [showPassword, setShowPassword] = useState(false);
 
         const [searchTerm, setSearchTerm] = useState('');
-        const [stockSearchTerm, setStockSearchTerm] = useState(''); // New: Stock Search
+        const [stockSearchTerm, setStockSearchTerm] = useState(''); 
         const [selectedCategory, setSelectedCategory] = useState('All');
         const [selectedSupplier, setSelectedSupplier] = useState('All'); 
         
@@ -148,6 +161,8 @@
         
         const [promoImage, setPromoImage] = useState('');
         const [currentPage, setCurrentPage] = useState(1);
+        const [stockManagementPage, setStockManagementPage] = useState(1);
+        const [stockAlertPage, setStockAlertPage] = useState(1);
         const itemsPerPage = 50;
 
         const [dateStart, setDateStart] = useState('');
@@ -184,10 +199,22 @@
             return res;
         }, []);
 
+        const fetchPOs = useCallback(async (silent=false) => {
+            if(!silent) Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            const res = await callAPI({ action: 'getPOs' });
+            if(!silent) Swal.close();
+            if (res.success) setPurchaseOrders(res.pos);
+            return res;
+        }, []);
+
         const changePage = (newPage) => {
             if(newPage === page) return;
             setIsSidebarOpen(false);
-            if(['admin_orders', 'history', 'tax_invoice', 'profile'].includes(newPage)) {
+            // Reset pagination when changing pages
+            if(newPage !== 'admin_stock') setStockManagementPage(1);
+            if(newPage !== 'stock_alert') setStockAlertPage(1);
+            
+            if(['admin_orders', 'history', 'tax_invoice', 'profile', 'purchase_order', 'stock_alert'].includes(newPage)) {
                 Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                 const promises = [];
                 if(newPage === 'admin_orders' || (newPage === 'tax_invoice' && user?.role === 'admin')) {
@@ -195,6 +222,9 @@
                 }
                 if(newPage === 'history' || (newPage === 'tax_invoice' && user?.role !== 'admin')) {
                     promises.push(fetchHistory(true));
+                }
+                if(newPage === 'purchase_order') {
+                    promises.push(fetchPOs(true));
                 }
                 Promise.all(promises).then(() => { Swal.close(); setPage(newPage); });
             } else { setPage(newPage); }
@@ -213,6 +243,10 @@
 
                if (storedUser) {
                   const u = JSON.parse(storedUser); setUser(u);
+                  // Update Profile Form on Init
+                  setProfileForm({ username: u.username, phone: u.phone, address: u.address });
+                  setTaxForm({ taxName: u.taxName || '', taxId: u.taxId || '', taxAddr: u.taxAddr || '' });
+
                   if (u.role === 'admin') {
                       await fetchAllOrders(true);
                       setPage('admin_orders'); 
@@ -261,8 +295,8 @@
                 const end = dateEnd ? new Date(dateEnd) : new Date();
                 end.setHours(23, 59, 59);
                 filtered = filtered.filter(order => {
-                    const oDate = parseThaiDate(order.date);
-                    return oDate >= start && oDate <= end;
+                    const oDate = parseThaiDate(order.date).getTime();
+                    return oDate >= start.getTime() && oDate <= end.getTime();
                 });
             }
             if (adminStatusFilter !== 'All') {
@@ -292,13 +326,38 @@
         }, [allOrders, dateStart, dateEnd]);
 
         const uniqueSuppliers = useMemo(() => ['All', ...new Set(products.map(p => p.supplier).filter(Boolean))], [products]);
+        // Filter ก่อน pagination - ค้นหาจากทั้งหมด
         const filteredProductsList = useMemo(() => products.filter(p => {
              const matchName = p.name.toLowerCase().includes(searchTerm.toLowerCase());
              const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
              const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
              return matchName && matchCat && matchSup;
         }), [products, searchTerm, selectedCategory, selectedSupplier]);
+        // Pagination หลังจาก filter
         const displayedProducts = filteredProductsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+        // Stock Alert: คำนวณสินค้าที่สต็อกต่ำ
+        const lowStockProducts = useMemo(() => {
+            return products.filter(p => {
+                const stock = Number(p.stock) || 0;
+                const minStock = Number(p.minStock) || 5;
+                return stock <= minStock;
+            }).sort((a, b) => {
+                const aStock = Number(a.stock) || 0;
+                const bStock = Number(b.stock) || 0;
+                return aStock - bStock; // เรียงจากสต็อกน้อยไปมาก
+            });
+        }, [products]);
+
+        // Filter ก่อน pagination - ค้นหาจากทั้งหมด
+        const filteredLowStockProducts = useMemo(() => {
+            return lowStockProducts.filter(p => 
+                p.name.toLowerCase().includes(stockAlertSearch.toLowerCase())
+            );
+        }, [lowStockProducts, stockAlertSearch]);
+
+        // นับจำนวนสินค้าที่สต็อกต่ำ
+        const lowStockCount = lowStockProducts.length;
 
         // --- Handlers ---
         const handleLogin = async (e) => { 
@@ -307,6 +366,9 @@
           if (res.success) { 
               setUser(res.user); 
               localStorage.setItem('partner_user', JSON.stringify(res.user)); 
+              // Set tax info immediately after login
+              setTaxForm({ taxName: res.user.taxName || '', taxId: res.user.taxId || '', taxAddr: res.user.taxAddr || '' });
+
               if (res.user.role === 'admin') { await fetchAllOrders(true); setPage('admin_orders'); } 
               else { setPage('home'); }
           } else { showError(res.message); } 
@@ -368,7 +430,14 @@
         };
 
         const openEditModal = (order) => { setEditingOrder(JSON.parse(JSON.stringify(order))); setIsEditModalOpen(true); };
-        const updateEditQty = (idx, delta) => { const newItems = [...editingOrder.items]; newItems[idx].qty += delta; if (newItems[idx].qty <= 0) newItems.splice(idx, 1); setEditingOrder({ ...editingOrder, items: newItems }); };
+        const updateEditQty = (idx, delta) => {
+            const newItems = [...editingOrder.items];
+            newItems[idx].qty += delta;
+            if (newItems[idx].qty <= 0) {
+                newItems.splice(idx, 1);
+            }
+            setEditingOrder({ ...editingOrder, items: newItems });
+        };
         const saveEditOrder = async () => {
              let msg = 'ยืนยันการแก้ไข?';
              if (editingOrderDiff > 0) msg = `ยอดเงินเพิ่มขึ้น ${editingOrderDiff.toLocaleString()} บาท (ต้องเก็บเพิ่ม)`;
@@ -389,8 +458,259 @@
         };
 
         const handleShipOrder = (orderId) => { Swal.fire({ title: 'แจ้งเลขพัสดุ', input: 'text', showCancelButton: true, confirmButtonColor: THEME_COLOR }).then((res) => { if (res.isConfirmed) updateOrderStatusFn(orderId, 'จัดส่งแล้ว', res.value); }); };
-        const handleEditStock = (product) => { Swal.fire({ title: `แก้ไขสต็อก: ${product.name}`, input: 'number', inputValue: product.stock, showCancelButton: true, confirmButtonColor: THEME_COLOR }).then((res) => { if (res.isConfirmed) handleUpdateStock(product.id, res.value); }); };
-        const handleUpdateStock = (productId, newStock) => { callAPI({ action: 'updateProductStock', productId, newStock }).then(res => { if(res.success) { Toast.fire({icon:'success',title:'Updated'}); fetchProducts(); } }); };
+        const handleEditStock = (product) => { 
+            Swal.fire({ title: `แก้ไขสต็อก: ${product.name}`, input: 'number', inputValue: product.stock, showCancelButton: true, confirmButtonColor: THEME_COLOR }).then((res) => { 
+                if (res.isConfirmed) {
+                     callAPI({ action: 'updateProductStock', productId: product.id, newStock: parseInt(res.value) }).then(r => {
+                         if(r.success) { Toast.fire({icon:'success',title:'สต็อกอัปเดตแล้ว'}); fetchProducts(); }
+                     });
+                }
+            }); 
+        };
+
+        const handleRestock = (product) => {
+             Swal.fire({ title: `เติมสต็อก: ${product.name}`, text: 'ระบุจำนวนที่ต้องการเติมเพิ่ม (+)', input: 'number', inputValue: 0, showCancelButton: true, confirmButtonColor: THEME_COLOR }).then((res) => {
+                 if(res.isConfirmed && res.value > 0) {
+                     callAPI({ action: 'restockProduct', productId: product.id, qty: parseInt(res.value), note: 'Admin Restock', userEmail: user.email }).then(r => {
+                         if(r.success) { Toast.fire({icon:'success',title:`เติมสต็อก +${res.value} เรียบร้อย`}); fetchProducts(); }
+                     });
+                 }
+             });
+        };
+
+        // --- Purchase Order Handlers ---
+        const openCreatePOModal = () => {
+            setPoItems([]);
+            setPoSupplier('');
+            setPoExpectedDate('');
+            setPoNotes('');
+            setIsPOModalOpen(true);
+        };
+
+        const addPOItem = (product) => {
+            const existing = poItems.find(item => item.productId === product.id);
+            if (existing) {
+                setPoItems(poItems.map(item => 
+                    item.productId === product.id 
+                        ? { ...item, qty: item.qty + 1 }
+                        : item
+                ));
+            } else {
+                setPoItems([...poItems, {
+                    productId: product.id,
+                    productName: product.name,
+                    qty: 1,
+                    price: product.price || 0
+                }]);
+            }
+        };
+
+        const updatePOItemQty = (productId, delta) => {
+            setPoItems(poItems.map(item => {
+                if (item.productId === productId) {
+                    const newQty = Math.max(1, item.qty + delta);
+                    return { ...item, qty: newQty };
+                }
+                return item;
+            }).filter(item => item.qty > 0));
+        };
+
+        const handleCreatePO = async () => {
+            if (!poSupplier || poSupplier.trim() === '') {
+                showError('กรุณาระบุชื่อซัพพลายเออร์');
+                return;
+            }
+            if (poItems.length === 0) {
+                showError('กรุณาเพิ่มสินค้าในรายการ');
+                return;
+            }
+
+            try {
+                Swal.fire({ title: 'กำลังสร้าง PO...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+                const res = await callAPI({
+                    action: 'createPO',
+                    poData: {
+                        supplier: poSupplier,
+                        items: poItems,
+                        expectedDate: poExpectedDate,
+                        notes: poNotes
+                    },
+                    userEmail: user.email
+                });
+                Swal.close();
+
+                if (res && res.success) {
+                    showSuccess('สำเร็จ', `สร้าง PO ${res.poId} เรียบร้อย`);
+                    setIsPOModalOpen(false);
+                    setPoItems([]);
+                    setPoSupplier('');
+                    setPoExpectedDate('');
+                    setPoNotes('');
+                    fetchPOs(true);
+                } else {
+                    showError(res?.message || 'เกิดข้อผิดพลาดในการสร้าง PO');
+                    console.error('PO Creation Error:', res);
+                }
+            } catch (error) {
+                Swal.close();
+                showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
+                console.error('PO Creation Exception:', error);
+            }
+        };
+
+        const handleReceivePO = async (po) => {
+            const poDetailRes = await callAPI({ action: 'getPO', poId: po.id });
+            if (!poDetailRes.success || !poDetailRes.po) {
+                showError('ไม่สามารถดึงข้อมูล PO ได้');
+                return;
+            }
+
+            setSelectedPO(poDetailRes.po);
+            setIsReceivePOModalOpen(true);
+        };
+
+        const confirmReceivePO = async () => {
+            if (!selectedPO) return;
+
+            const receivedItems = selectedPO.items.map(item => ({
+                productId: item.productId,
+                receivedQty: item.receivedQty || item.qty
+            }));
+
+            Swal.fire({ title: 'กำลังรับสินค้า...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+            const res = await callAPI({
+                action: 'receivePO',
+                poId: selectedPO.id,
+                receivedItems: receivedItems,
+                userEmail: user.email
+            });
+            Swal.close();
+
+            if (res.success) {
+                showSuccess('สำเร็จ', 'รับสินค้าและอัปเดตสต็อกเรียบร้อย');
+                setIsReceivePOModalOpen(false);
+                setSelectedPO(null);
+                fetchPOs(true);
+                fetchProducts();
+            } else {
+                showError(res.message || 'เกิดข้อผิดพลาด');
+            }
+        };
+
+        const handleUpdatePOStatus = async (poId, status) => {
+            Swal.fire({ title: 'กำลังอัปเดตสถานะ...', didOpen: () => Swal.showLoading() });
+            const res = await callAPI({ action: 'updatePOStatus', poId, status, userEmail: user.email });
+            Swal.close();
+            if (res.success) {
+                Toast.fire({ icon: 'success', title: 'อัปเดตสถานะเรียบร้อย' });
+                fetchPOs(true);
+            } else {
+                showError(res.message || 'เกิดข้อผิดพลาด');
+            }
+        };
+
+        // Stock Alert: สร้าง PO อัตโนมัติจากสินค้าที่สต็อกต่ำ
+        const handleAutoCreatePO = async (selectedProducts) => {
+            if (!selectedProducts || selectedProducts.length === 0) {
+                showError('กรุณาเลือกสินค้าที่ต้องการสร้าง PO');
+                return;
+            }
+
+            // จัดกลุ่มสินค้าตามซัพพลายเออร์
+            const productsBySupplier = {};
+            selectedProducts.forEach(product => {
+                const supplier = product.supplier || 'ไม่ระบุ';
+                if (!productsBySupplier[supplier]) {
+                    productsBySupplier[supplier] = [];
+                }
+                // คำนวณจำนวนที่ต้องสั่ง (minStock * 2 - stock ปัจจุบัน)
+                const minStock = Number(product.minStock) || 5;
+                const currentStock = Number(product.stock) || 0;
+                const orderQty = Math.max(minStock * 2 - currentStock, minStock);
+                
+                productsBySupplier[supplier].push({
+                    productId: product.id,
+                    productName: product.name,
+                    qty: orderQty,
+                    price: product.price || 0
+                });
+            });
+
+            // แยก PO ตามซัพพลายเออร์อัตโนมัติ
+            const suppliers = Object.keys(productsBySupplier);
+            let createdCount = 0;
+            let failedCount = 0;
+            
+            Swal.fire({ 
+                title: 'กำลังสร้าง PO...', 
+                html: `กำลังสร้าง PO สำหรับ ${suppliers.length} ซัพพลายเออร์`,
+                didOpen: () => Swal.showLoading(), 
+                allowOutsideClick: false 
+            });
+
+            // สร้าง PO แยกตามซัพพลายเออร์
+            for (const supplier of suppliers) {
+                try {
+                    const res = await callAPI({
+                        action: 'createPO',
+                        poData: {
+                            supplier: supplier,
+                            items: productsBySupplier[supplier],
+                            expectedDate: '',
+                            notes: `สร้างอัตโนมัติจาก Stock Alert - ${new Date().toLocaleDateString('th-TH')}`
+                        },
+                        userEmail: user.email
+                    });
+
+                    if (res && res.success) {
+                        createdCount++;
+                    } else {
+                        failedCount++;
+                    }
+                } catch (error) {
+                    failedCount++;
+                    console.error('Error creating PO for supplier:', supplier, error);
+                }
+            }
+
+            Swal.close();
+
+            if (createdCount > 0) {
+                if (suppliers.length > 1) {
+                    showSuccess('สำเร็จ', `สร้าง PO เรียบร้อย ${createdCount} ใบ (แยกตามซัพพลายเออร์)`);
+                } else {
+                    Toast.fire({ icon: 'success', title: 'สร้าง PO เรียบร้อย' });
+                }
+                fetchPOs(true);
+                fetchProducts();
+            } else {
+                showError('ไม่สามารถสร้าง PO ได้');
+            }
+            
+            if (failedCount > 0) {
+                console.warn(`${failedCount} PO creation(s) failed`);
+            }
+        };
+
+
+        // Filter ก่อน pagination - ค้นหาจากทั้งหมด
+        const filteredPOs = useMemo(() => {
+            let filtered = purchaseOrders;
+            // Filter ตามสถานะ
+            if (poStatusFilter !== 'All') {
+                filtered = filtered.filter(po => po.status === poStatusFilter);
+            }
+            // Filter ตามคำค้นหา (PO ID, Supplier, Notes)
+            if (poSearchTerm.trim() !== '') {
+                const searchLower = poSearchTerm.toLowerCase();
+                filtered = filtered.filter(po => 
+                    po.id.toLowerCase().includes(searchLower) ||
+                    (po.supplier && po.supplier.toLowerCase().includes(searchLower)) ||
+                    (po.notes && po.notes.toLowerCase().includes(searchLower))
+                );
+            }
+            return filtered;
+        }, [purchaseOrders, poStatusFilter, poSearchTerm]);
 
         const calculateSubtotal = () => cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
         const calculateNetTotal = () => Math.max(0, calculateSubtotal() - discountAmount + shippingCost);
@@ -413,7 +733,13 @@
                 const orderData = { id: `ORD-${Date.now().toString().slice(-6)}`, user: user.email, items: cart, total: calculateNetTotal(), address: user.address, discountCode: appliedCoupon, discountAmount: discountAmount }; 
                 const res = await callAPI({ action: 'placeOrder', orderData, slipBase64: reader.result }); 
                 Swal.close();
-                if(res.success) { setCart([]); setSlipFile(null); setAppliedCoupon(null); setIsCheckoutOpen(false); showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ'); changePage('history'); } 
+                if(res.success) { 
+                    setCart([]); setSlipFile(null); setAppliedCoupon(null); setIsCheckoutOpen(false); 
+                    showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ'); 
+                    // ** FIX 2: Refresh stock automatically after order **
+                    await fetchProducts(); 
+                    changePage('history'); 
+                } 
                 else { showError(res.message); } 
             }; 
         };
@@ -430,17 +756,133 @@
              }
         };
 
+        // ** FIX 1: Robust Invoice Logic with User State Priority **
         const handlePrintFullInvoice = async (order) => {
-             Swal.fire({ title: 'กำลังจัดเตรียมเอกสาร...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-             let taxName = "", taxId = "", taxAddrStr = "";
+             Swal.fire({ title: 'กำลังตรวจสอบข้อมูล...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+             
+             let taxName = "";
+             let taxId = "";
+             let taxAddrStr = "";
+
              try {
-                const res = await callAPI({ action: 'getProfile', email: order.user });
-                if (res.success && res.user) {
-                     taxName = res.user.taxName || res.user.username || order.user;
-                     taxId = res.user.taxId || "-";
-                     taxAddrStr = res.user.taxAddr || res.user.address || order.address;
-                } else { taxName = order.user; taxAddrStr = order.address; taxId = "-"; }
-             } catch(e) { taxName = order.user; taxAddrStr = order.address; taxId = "-"; }
+                 // ตรวจสอบว่าเป็น admin หรือลูกค้า
+                 const isAdmin = user && user.role === 'admin';
+
+                 // Priority 1: สำหรับลูกค้า (non-admin) ใช้ข้อมูลจาก Local State ก่อนเสมอ
+                 // เพราะลูกค้าจะเห็นเฉพาะ order ของตัวเองอยู่แล้ว
+                 if (!isAdmin && user) {
+                    // 1.1 ใช้ taxForm state ก่อน (ค่าล่าสุดที่ผู้ใช้กรอกแต่ยังไม่ได้บันทึก)
+                    // ตรวจสอบว่ามีค่าจริงๆ และไม่ใช่ empty string
+                    if (taxForm && taxForm.taxName && String(taxForm.taxName).trim() !== "") {
+                        taxName = String(taxForm.taxName).trim();
+                    }
+                    if (taxForm && taxForm.taxId && String(taxForm.taxId).trim() !== "") {
+                        taxId = String(taxForm.taxId).trim();
+                    }
+                    if (taxForm && taxForm.taxAddr && String(taxForm.taxAddr).trim() !== "") {
+                        taxAddrStr = String(taxForm.taxAddr).trim();
+                    }
+
+                    // 1.2 ถ้า taxForm ยังไม่มีค่า ใช้ user state (ค่าจาก localStorage)
+                    if (!taxName || taxName === "") {
+                        taxName = (user.taxName && String(user.taxName).trim() !== "") ? String(user.taxName).trim() : "";
+                    }
+                    if (!taxId || taxId === "") {
+                        taxId = (user.taxId && String(user.taxId).trim() !== "") ? String(user.taxId).trim() : "";
+                    }
+                    if (!taxAddrStr || taxAddrStr === "") {
+                        taxAddrStr = (user.taxAddr && String(user.taxAddr).trim() !== "") ? String(user.taxAddr).trim() : "";
+                    }
+                 }
+
+                 // Priority 2: สำหรับ admin หรือเมื่อ Local State ไม่มีค่า ให้ดึงจาก Server
+                 const hasLocalTaxData = taxName && taxName !== "" && taxId && taxId !== "";
+                 
+                 // Debug: ตรวจสอบข้อมูลที่ได้จาก Local State
+                 console.log('Tax Invoice Debug:', {
+                     isAdmin,
+                     hasLocalTaxData,
+                     taxForm: taxForm ? { taxName: taxForm.taxName, taxId: taxForm.taxId, taxAddr: taxForm.taxAddr } : 'null',
+                     user: user ? { taxName: user.taxName, taxId: user.taxId, taxAddr: user.taxAddr } : 'null',
+                     current: { taxName, taxId, taxAddrStr },
+                     orderUser: order.user
+                 });
+                 
+                 // สำหรับลูกค้า: ถ้ามีข้อมูลใน Local State แล้ว ไม่ต้องเรียก API
+                 if (!hasLocalTaxData || isAdmin) {
+                     try {
+                        // เพิ่ม timeout สำหรับ API call (10 วินาที)
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('API timeout')), 10000)
+                        );
+                        
+                        const apiPromise = callAPI({ action: 'getProfile', email: order.user });
+                        const res = await Promise.race([apiPromise, timeoutPromise]);
+                        
+                        if (res && res.success && res.user) {
+                             // ใช้ข้อมูลจาก Server เฉพาะเมื่อ Local State ไม่มีค่า หรือเป็น admin
+                             // และต้องตรวจสอบว่า Server ส่งค่ามาจริงๆ (ไม่ใช่ empty string)
+                             if (!taxName || taxName === "") {
+                                 taxName = (res.user.taxName && String(res.user.taxName).trim() !== "") ? String(res.user.taxName).trim() : taxName;
+                             }
+                             if (!taxId || taxId === "") {
+                                 taxId = (res.user.taxId && String(res.user.taxId).trim() !== "") ? String(res.user.taxId).trim() : taxId;
+                             }
+                             if (!taxAddrStr || taxAddrStr === "") {
+                                 taxAddrStr = (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") ? String(res.user.taxAddr).trim() : taxAddrStr;
+                             }
+                             console.log('Tax Invoice - Data from Server:', { taxName, taxId, taxAddrStr });
+                        }
+                     } catch(e) { 
+                         console.error('Error fetching profile:', e);
+                         // ถ้า API ล้มเหลว แต่มีข้อมูลใน Local State อยู่แล้ว ก็ใช้ข้อมูลนั้น
+                         if (!hasLocalTaxData) {
+                             console.warn('API failed and no local data available');
+                         }
+                     }
+                 } else {
+                     console.log('Tax Invoice - Using Local State:', { taxName, taxId, taxAddrStr });
+                 }
+             } catch(e) {
+                 console.error('Unexpected error in handlePrintFullInvoice:', e);
+             } finally {
+                 // ปิด modal เสมอ ไม่ว่าจะเกิด error หรือไม่
+             Swal.close();
+             }
+
+             // ** Condition Check **
+             // ตรวจสอบว่ามีข้อมูลครบถ้วนหรือไม่ (ต้องมีทั้ง taxName และ taxId)
+             const hasValidTaxData = taxName && taxName.trim() !== "" && taxId && taxId.trim() !== "";
+             
+             console.log('Tax Invoice - Final Check:', {
+                 hasValidTaxData,
+                 taxName: taxName || '(empty)',
+                 taxId: taxId || '(empty)',
+                 taxAddrStr: taxAddrStr || '(empty)'
+             });
+             
+             if (!hasValidTaxData) {
+                const result = await Swal.fire({
+                    title: 'ข้อมูลภาษีไม่ครบถ้วน',
+                    text: "คุณยังไม่ได้ระบุข้อมูลผู้เสียภาษี (ชื่อ/เลขผู้เสียภาษี/ที่อยู่) ในหน้าโปรไฟล์",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'ใช้ที่อยู่จัดส่งแทน',
+                    cancelButtonText: 'แก้ไขข้อมูลภาษี',
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33'
+                });
+
+                if (result.isConfirmed) {
+                    // Fallback to shipping info
+                    taxName = order.user; 
+                    taxId = "-";
+                    taxAddrStr = order.address;
+                } else {
+                    changePage('tax_invoice'); 
+                    return; 
+                }
+             }
 
              const itemsHtml = order.items.map((it, i) => `<tr><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${i+1}</td><td style="border-bottom:1px solid #eee;padding:8px 5px;">${it.name}</td><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${it.qty}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${Number(it.price).toLocaleString(undefined, {minimumFractionDigits: 2})}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${(it.price*it.qty).toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`).join('');
              const subtotal = order.items.reduce((s,i)=>s+i.price*i.qty,0);
@@ -449,65 +891,273 @@
              const grandTotal = subtotal - discVal + shipping;
              const vat = grandTotal * 7 / 107; const preVat = grandTotal - vat;
 
+             // ** FIX: Use || '-' for every field to prevent "undefined" **
              const content = `<html><head><title>Tax Invoice</title><style>@page{size:A4;margin:15mm}body{font-family:'Sarabun',sans-serif;padding:0;line-height:1.4;color:#333}table{width:100%;border-collapse:collapse}th{background:#047857 !important;color:white !important;border:1px solid #047857;padding:8px;font-size:11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px;border-bottom:2px solid #047857;padding-bottom:15px}.box{border:1px solid #ccc;padding:15px;margin-bottom:20px;border-radius:4px;font-size:11pt}td{font-size:11pt;padding:8px 5px}</style></head><body>
                 <div class="header"><div style="width:60%; text-align:left;"><h2 style="margin:0 0 5px 0; font-size:14pt; font-weight:bold; color:#047857;">${SHOP_INFO.name}</h2><div style="font-size:11pt; color:#333; line-height:1.5;">${SHOP_INFO.address.replace(/\n/g, '<br>')}</div><div style="font-size:11pt; color:#333; margin-top:5px;"><strong>เลขประจำตัวผู้เสียภาษี:</strong> ${SHOP_INFO.taxId}</div></div><div style="width:40%; text-align:right;"><h1 style="margin:0; font-size:18pt; font-weight:bold; color:#047857; white-space:nowrap;">ใบกำกับภาษี / ใบเสร็จรับเงิน</h1><p style="margin:0 0 15px; font-size:10pt; color:#666;">(ต้นฉบับ / Original)</p><div style="border:1px solid #ddd; padding:10px; border-radius:5px; background-color:#f9fafb; display:inline-block; text-align:right;"><div style="font-size:11pt;"><strong>เลขที่:</strong> INV-${order.id}</div><div style="font-size:11pt;"><strong>วันที่:</strong> ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div></div></div></div>
-                <div class="box" style="background-color:#f9fafb;"><h3 style="margin:0 0 10px 0; font-size:12pt; font-weight:bold; color:#047857; border-bottom:1px solid #eee; padding-bottom:5px;">ลูกค้า (Customer)</h3><div><div style="font-weight:bold; margin-bottom:3px;">${taxName}</div><div style="margin-bottom:3px;">${taxAddrStr}</div><div><strong>เลขประจำตัวผู้เสียภาษี:</strong> ${taxId}</div></div></div>
+                <div class="box" style="background-color:#f9fafb;"><h3 style="margin:0 0 10px 0; font-size:12pt; font-weight:bold; color:#047857; border-bottom:1px solid #eee; padding-bottom:5px;">ลูกค้า (Customer)</h3><div><div style="font-weight:bold; margin-bottom:3px;">${taxName || '-'}</div><div style="margin-bottom:3px;">${taxAddrStr || '-'}</div><div><strong>เลขประจำตัวผู้เสียภาษี:</strong> ${taxId || '-'}</div></div></div>
                 <table style="width:100%; border:1px solid #ddd;"><thead><tr><th style="width:5%;text-align:center">#</th><th style="width:40%">รายการ</th><th style="width:10%;text-align:center">จำนวน</th><th style="width:20%;text-align:right">ราคา/หน่วย</th><th style="width:20%;text-align:right">จำนวนเงิน</th></tr></thead><tbody>${itemsHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;font-weight:bold">รวมเงิน</td><td style="text-align:right">${subtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>${discVal > 0 ? `<tr><td colspan="4" style="text-align:right;color:#dc2626">ส่วนลด</td><td style="text-align:right;color:#dc2626">-${discVal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}<tr><td colspan="4" style="text-align:right">ค่าขนส่ง</td><td style="text-align:right">${shipping.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr><td colspan="4" style="text-align:right">มูลค่าก่อนภาษี</td><td style="text-align:right">${preVat.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr><td colspan="4" style="text-align:right">ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${vat.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr style="background-color:#047857 !important; color:white !important; font-weight:bold; font-size:14pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;"><td colspan="4" style="text-align:right; padding:10px;">ยอดสุทธิ</td><td style="text-align:right; padding:10px;">${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})} บาท</td></tr></tfoot></table>
                 <div style="margin-top:60px; display:flex; justify-content:flex-end; text-align:center; font-size:11pt;"><div style="width:250px; position:relative;"><img src="${SHOP_INFO.signature}" style="position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:120px; opacity:0.8;" /><div style="border-bottom:1px solid #ccc; height:30px; margin-bottom:5px;"></div>ผู้มีอำนาจลงนาม (Authorized Signature)<br>ในนาม บริษัท ไชยจันลา จำกัด</div></div>
              </body></html>`;
              openPrintWindow(content);
         };
 
-        const handlePrintLabel = async (order) => {
-             Swal.fire({ title: 'กำลังจัดเตรียมเอกสาร...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-             let customerName = order.user;
-             try {
-                if (user && user.role === 'admin' && order.user !== user.email) {
-                    const res = await callAPI({ action: 'getProfile', email: order.user });
-                    if (res.success && res.user) customerName = res.user.username;
-                } else if (user.email === order.user) customerName = user.username;
-             } catch(e) {}
-             const content = `<html><head><title>Label</title><link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet"><style>@page{size:100mm 150mm;margin:0}body{font-family:'Sarabun',sans-serif;margin:0;padding:5mm;width:100mm;height:150mm;box-sizing:border-box;display:flex;flex-direction:column}.header{text-align:center;border-bottom:2px solid #000;padding-bottom:5px;margin-bottom:10px}.sender{font-size:12px;margin-bottom:10px;border-bottom:1px dashed #999;padding-bottom:10px}.receiver{border:2px solid #000;padding:10px;flex-grow:1;border-radius:4px}.receiver-name{font-size:18px;font-weight:bold;margin:5px 0}.footer{text-align:center;font-size:10px;margin-top:auto;background:#eee;padding:5px}</style></head><body>` +
-                 `<div class="header"><h2>ใบปะหน้าพัสดุ</h2><p>Order: <strong>${order.id}</strong></p></div>` +
-                 `<div class="sender"><strong>ผู้ส่ง (Sender):</strong><br>${SHOP_ADDRESS_TEXT.replace(/\n/g, '<br>')}</div>` +
-                 `<div class="receiver"><strong>ผู้รับ (Receiver):</strong><br><div class="receiver-name">${customerName}</div>${order.address}<br>Tel: ${order.phone||'-'}</div>` +
-                 `<div class="footer">[ Tracking: ${order.tracking||'N/A'} ]</div>` +
-             `</body></html>`;
-             openPrintWindow(content);
+        // ฟังก์ชันพิมพ์ใบเสร็จรับเงิน (แบบง่าย)
+        const handlePrintReceipt = (order) => {
+            Swal.fire({ title: 'กำลังเตรียมพิมพ์...', didOpen: () => Swal.showLoading() });
+            
+            const itemsHtml = order.items.map((it, i) => `
+                <tr>
+                    <td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${i+1}</td>
+                    <td style="border-bottom:1px solid #eee;padding:8px 5px;">${it.name}</td>
+                    <td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${it.qty}</td>
+                    <td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${Number(it.price).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                    <td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${(it.price*it.qty).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                </tr>
+            `).join('');
+            
+            const subtotal = order.items.reduce((s,i)=>s+i.price*i.qty,0);
+            let discVal = 0; 
+            const match = String(order.discountInfo || "").match(/-(\d+)B/); 
+            if (match) discVal = parseInt(match[1]);
+            const shipping = Number(order.shippingCost) || 0;
+            const grandTotal = subtotal - discVal + shipping;
+
+            const content = `<html><head><title>Receipt</title><style>
+                @page { size: A4; margin: 15mm; }
+                body { font-family: 'Sarabun', sans-serif; padding: 0; line-height: 1.4; color: #333; }
+                table { width: 100%; border-collapse: collapse; }
+                th { background: #1f2937 !important; color: white !important; border: 1px solid #1f2937; padding: 8px; font-size: 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #1f2937; padding-bottom: 15px; }
+                .box { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 11pt; }
+                td { font-size: 11pt; padding: 8px 5px; }
+            </style></head><body>
+                <div class="header">
+                    <div style="width: 60%; text-align: left;">
+                        <h2 style="margin: 0 0 5px 0; font-size: 16pt; font-weight: bold; color: #1f2937;">${SHOP_INFO.name}</h2>
+                        <div style="font-size: 11pt; color: #333; line-height: 1.5;">${SHOP_INFO.address.replace(/\n/g, '<br>')}</div>
+                    </div>
+                    <div style="width: 40%; text-align: right;">
+                        <h1 style="margin: 0; font-size: 18pt; font-weight: bold; color: #1f2937;">ใบเสร็จรับเงิน</h1>
+                        <p style="margin: 5px 0; font-size: 10pt; color: #666;">(Receipt)</p>
+                        <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f9fafb; display: inline-block; text-align: right; margin-top: 10px;">
+                            <div style="font-size: 11pt;"><strong>เลขที่:</strong> ${order.id}</div>
+                            <div style="font-size: 11pt;"><strong>วันที่:</strong> ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="box" style="background-color: #f9fafb;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 12pt; font-weight: bold; color: #1f2937; border-bottom: 1px solid #eee; padding-bottom: 5px;">ลูกค้า (Customer)</h3>
+                    <div>
+                        <div style="font-weight: bold; margin-bottom: 3px;">${order.user || '-'}</div>
+                        <div style="margin-bottom: 3px;">${order.address || '-'}</div>
+                    </div>
+                </div>
+                <table style="width: 100%; border: 1px solid #ddd;">
+                    <thead>
+                        <tr>
+                            <th style="width: 5%; text-align: center;">#</th>
+                            <th style="width: 40%;">รายการ</th>
+                            <th style="width: 10%; text-align: center;">จำนวน</th>
+                            <th style="width: 20%; text-align: right;">ราคา/หน่วย</th>
+                            <th style="width: 20%; text-align: right;">จำนวนเงิน</th>
+                        </tr>
+                    </thead>
+                    <tbody>${itemsHtml}</tbody>
+                    <tfoot>
+                        <tr><td colspan="4" style="text-align: right; font-weight: bold;">รวมเงิน</td><td style="text-align: right;">${subtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>
+                        ${discVal > 0 ? `<tr><td colspan="4" style="text-align: right; color: #dc2626;">ส่วนลด</td><td style="text-align: right; color: #dc2626;">-${discVal.toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>` : ''}
+                        <tr><td colspan="4" style="text-align: right;">ค่าขนส่ง</td><td style="text-align: right;">${shipping.toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>
+                        <tr style="background-color: #1f2937 !important; color: white !important; font-weight: bold; font-size: 14pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                            <td colspan="4" style="text-align: right; padding: 10px;">ยอดสุทธิ</td>
+                            <td style="text-align: right; padding: 10px;">${grandTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div style="margin-top: 40px; text-align: center; font-size: 11pt; color: #666;">
+                    <p>ขอบคุณที่ใช้บริการ</p>
+                </div>
+            </body></html>`;
+            
+            openPrintWindow(content);
         };
 
-        const handlePrintReceipt = async (order) => {
-            Swal.fire({ title: 'กำลังจัดเตรียมเอกสาร...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-            let customerName = order.user;
-            if (user && user.role === 'admin' && order.user !== user.email) {
-                try {
-                    const res = await callAPI({ action: 'getProfile', email: order.user });
-                    if (res.success && res.user) customerName = res.user.username;
-                } catch(e) {}
-            } else if (user?.email === order.user) customerName = user.username;
-
-             const itemsHtml = order.items.map((it, i) => `<tr><td style="padding:5px;">${i+1}</td><td style="padding:5px;">${it.name}</td><td style="text-align:center;padding:5px;">${it.qty}</td><td style="text-align:right;padding:5px;">${Number(it.price).toLocaleString()}</td><td style="text-align:right;padding:5px;">${(it.price*it.qty).toLocaleString()}</td></tr>`).join('');
-             const subtotal = order.items.reduce((s,i)=>s+i.price*i.qty,0);
-             let discVal = 0; const match = String(order.discountInfo || "").match(/-(\d+)B/); if (match) discVal = parseInt(match[1]);
-             const shipping = Number(order.shippingCost) || 0;
-             const grandTotal = subtotal - discVal + shipping;
-
-             const content = `<html><head><title>Receipt</title><link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet"><style>body{font-family:'Sarabun',sans-serif;padding:20px;font-size:12px;color:#333;}.header{text-align:center;margin-bottom:20px;}table{width:100%;border-collapse:collapse;margin-bottom:20px;}th{background:#eee;border-bottom:1px solid #ccc;padding:8px;text-align:left;}</style></head><body>` +
-                `<div class="header"><h2 style="margin:0;">ใบเสร็จรับเงิน (Receipt)</h2><h3>${SHOP_INFO.name}</h3><p>${SHOP_INFO.address.replace(/\n/g, '<br>')}</p></div>` +
-                `<div style="display:flex;justify-content:space-between;margin-bottom:15px;border-bottom:1px solid #ccc;padding-bottom:10px;">` +
-                    `<div><strong>ลูกค้า:</strong> ${customerName}<br>${order.address}</div>` +
-                    `<div style="text-align:right;"><strong>เลขที่:</strong> #${order.id}<br><strong>วันที่:</strong> ${new Date().toLocaleDateString('th-TH')}</div>` +
-                `</div>` +
-                `<table><tr><th>#</th><th>รายการ</th><th style="text-align:center;">จำนวน</th><th style="text-align:right;">ราคา</th><th style="text-align:right;">รวม</th></tr>${itemsHtml}` +
-                `<tr style="border-top:1px solid #ccc;"><td colspan="4" style="text-align:right;padding:5px;">รวมเงิน</td><td style="text-align:right;padding:5px;">${subtotal.toLocaleString()}</td></tr>` +
-                (discVal>0 ? `<tr><td colspan="4" style="text-align:right;padding:5px;color:red;">ส่วนลด</td><td style="text-align:right;padding:5px;color:red;">-${discVal.toLocaleString()}</td></tr>` : '') +
-                `<tr><td colspan="4" style="text-align:right;padding:5px;">ค่าขนส่ง</td><td style="text-align:right;padding:5px;">${shipping.toLocaleString()}</td></tr>` +
-                `<tr style="font-weight:bold;font-size:14px;"><td colspan="4" style="text-align:right;padding:10px 5px;">ยอดสุทธิ</td><td style="text-align:right;padding:10px 5px;">${grandTotal.toLocaleString()} บาท</td></tr></table>` +
-                `<div style="text-align:center;margin-top:30px;font-size:10px;color:#888;">ขอบคุณที่ใช้บริการ</div></body></html>`;
+        // ฟังก์ชันพิมพ์ใบปะหน้า (สำหรับเครื่องพิมพ์ความร้อน - Thermal Printer 100x150mm)
+        const handlePrintLabel = (order) => {
+            Swal.fire({ title: 'กำลังเตรียมพิมพ์...', didOpen: () => Swal.showLoading() });
+            
+            // นับจำนวนรวมของรายการสินค้า
+            const totalItems = order.items.reduce((sum, item) => sum + item.qty, 0);
+            
+            // แยกที่อยู่และเบอร์โทร - ตัดที่ "เขตบางซื่อ"
+            const fullAddress = SHOP_INFO.address.split('\n')[0] || '';
+            // แยกที่อยู่เป็น 2 บรรทัดที่ "เขตบางซื่อ"
+            // ที่อยู่: "966 ถนนประชาราษฎร์1 แขวงบางซื่อ เขตบางซื่อ กรุงเทพมหานคร 10800"
+            const addressParts = fullAddress.split('เขตบางซื่อ');
+            const addressLine1 = addressParts[0] ? addressParts[0].trim() : '';
+            const addressLine2 = addressParts[1] ? ('เขตบางซื่อ' + addressParts[1]).trim() : '';
+            const shopPhone = SHOP_INFO.address.split('\n')[1]?.replace('โทร. ', '') || '061-732-1346';
+            
+            const content = `<html><head><title>Shipping Label</title><style>
+                @page { 
+                    size: 100mm 150mm; 
+                    margin: 6mm 4mm; 
+                }
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                body { 
+                    font-family: 'Sarabun', 'Arial', sans-serif; 
+                    padding: 0; 
+                    margin: 0; 
+                    line-height: 1.5; 
+                    color: #000; 
+                    font-size: 10pt;
+                    background: white;
+                }
+                .container {
+                    width: 100%;
+                    max-width: 92mm;
+                    margin: 0 auto;
+                }
+                .header-section {
+                    padding: 6px 0;
+                    margin-bottom: 12px;
+                    text-align: center;
+                }
+                .company-name { 
+                    font-size: 11pt; 
+                    font-weight: bold; 
+                    text-align: center; 
+                    margin-bottom: 6px;
+                    line-height: 1.3;
+                    letter-spacing: 0.3px;
+                    white-space: nowrap;
+                }
+                .shop-address { 
+                    font-size: 8pt; 
+                    text-align: center; 
+                    color: #333;
+                    line-height: 1.4;
+                    margin-bottom: 3px;
+                }
+                .shop-phone { 
+                    font-size: 8pt; 
+                    text-align: center; 
+                    color: #333;
+                    line-height: 1.4;
+                }
+                .order-section {
+                    padding: 8px 0;
+                    margin: 10px 0;
+                    text-align: center;
+                    border-top: 2px solid #000;
+                    border-bottom: 2px solid #000;
+                }
+                .order-id { 
+                    font-size: 11pt; 
+                    font-weight: bold; 
+                    color: #000;
+                    letter-spacing: 1px;
+                    font-family: 'Arial', monospace;
+                }
+                .customer-box {
+                    border: 1.5px solid #000;
+                    padding: 8px 6px;
+                    margin: 10px 0;
+                    background: #fff;
+                }
+                .customer-label { 
+                    font-size: 9pt; 
+                    font-weight: bold; 
+                    margin-bottom: 5px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    border-bottom: 1px solid #000;
+                    padding-bottom: 3px;
+                }
+                .customer-name { 
+                    font-size: 11pt; 
+                    font-weight: bold; 
+                    margin-bottom: 4px;
+                    margin-top: 4px;
+                }
+                .customer-address { 
+                    font-size: 9pt; 
+                    line-height: 1.5;
+                    word-break: break-word;
+                }
+                .info-box {
+                    border: 1px dashed #666;
+                    padding: 6px;
+                    margin: 8px 0;
+                    text-align: center;
+                    background: #f9f9f9;
+                }
+                .items-count { 
+                    font-size: 10pt; 
+                    font-weight: bold;
+                }
+                ${order.tracking ? `
+                .tracking-box {
+                    padding: 8px;
+                    margin: 10px 0;
+                    text-align: center;
+                    background: #fff;
+                }
+                .tracking-label {
+                    font-size: 8pt;
+                    font-weight: bold;
+                    margin-bottom: 4px;
+                    text-transform: uppercase;
+                }
+                .tracking-number {
+                    font-size: 12pt;
+                    font-weight: bold;
+                    font-family: 'Arial', monospace;
+                    letter-spacing: 1px;
+                }
+                ` : ''}
+            </style></head><body>
+                <div class="container">
+                    <div class="header-section">
+                        <div class="company-name">${SHOP_INFO.name}</div>
+                        <div class="shop-address">${addressLine1}</div>
+                        <div class="shop-address">${addressLine2}</div>
+                        <div class="shop-phone">โทร. ${shopPhone}</div>
+                    </div>
+                    
+                    <div class="order-section">
+                        <div class="order-id">${order.id}</div>
+                    </div>
+                    
+                    <div class="customer-box">
+                        <div class="customer-label">📦 ส่งถึง</div>
+                        <div class="customer-name">${order.user || '-'}</div>
+                        <div class="customer-address">${order.address || '-'}</div>
+                    </div>
+                    
+                    <div class="info-box">
+                        <div class="items-count">จำนวนรายการ: ${totalItems} รายการ</div>
+                    </div>
+                    
+                    ${order.tracking ? `
+                    <div class="tracking-box">
+                        <div class="tracking-label">🚚 เลขพัสดุ</div>
+                        <div class="tracking-number">${order.tracking}</div>
+                    </div>
+                    ` : ''}
+                </div>
+            </body></html>`;
+            
              openPrintWindow(content);
         };
 
         // --- View Logic ---
+        const displayedProductsList = useMemo(() => displayedProducts, [displayedProducts]);
+
+        // --- Render UI ---
         if (isLoading && !document.querySelector('.swal2-container')) return <div className="flex items-center justify-center h-dvh bg-gray-100 z-50"><div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-800 border-t-transparent"></div></div>;
 
         if (page === 'login') return (
@@ -543,19 +1193,29 @@
 
         return (
             <div className="flex flex-col h-dvh overflow-hidden bg-gray-100">
-                <div className="flex flex-1 overflow-hidden relative text-gray-800">
+                <div className="flex flex-1 overflow-hidden relative text-gray-800 font-normal">
                     
                     {/* SIDEBAR */}
                     <aside className={`fixed lg:static w-72 bg-gray-900 text-gray-400 flex flex-col h-full z-50 transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} shadow-xl`}>
                         <div className="p-6 border-b border-gray-800 text-center">
                             <div className="w-16 h-16 bg-gray-700 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-xl font-bold">{(user?.username||'U').charAt(0).toUpperCase()}</div>
                             <h1 className="text-white font-bold truncate">{user?.username}</h1>
-                            <span className="text-xs bg-gray-800 px-2 py-1 rounded mt-2 border border-gray-700 inline-block">{user?.role === 'admin' ? 'Administrator' : `Branch: ${user?.branchId}`}</span>
+                            <span className="text-xs bg-gray-800 px-2 py-1 rounded mt-2 border border-gray-700 inline-block font-normal">{user?.role === 'admin' ? 'Administrator' : `Branch: ${user?.branchId}`}</span>
                         </div>
                         <nav className="flex-1 py-4 overflow-y-auto space-y-1">
                             {user?.role === 'admin' ? (
                                 <>
                                     <button onClick={() => changePage('admin_orders')} className={`w-full text-left flex items-center px-6 py-4 sidebar-item ${page==='admin_orders'?'sidebar-active':''}`}><Icon icon="fa-list-alt" className="w-6 text-center" /> <span className="ml-3 text-sm">รายการสั่งซื้อทั้งหมด</span></button>
+                                    <button onClick={() => changePage('purchase_order')} className={`w-full text-left flex items-center px-6 py-4 sidebar-item ${page==='purchase_order'?'sidebar-active':''}`}><Icon icon="fa-shopping-cart" className="w-6 text-center" /> <span className="ml-3 text-sm">สั่งซื้อสินค้า (PO)</span></button>
+                                    <button onClick={() => changePage('stock_alert')} className={`w-full text-left flex items-center px-6 py-4 sidebar-item ${page==='stock_alert'?'sidebar-active':''} relative`}>
+                                        <Icon icon="fa-exclamation-triangle" className="w-6 text-center" /> 
+                                        <span className="ml-3 text-sm">แจ้งเตือนสต็อกต่ำ</span>
+                                        {lowStockCount > 0 && (
+                                            <span className="absolute right-4 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                                {lowStockCount > 9 ? '9+' : lowStockCount}
+                                            </span>
+                                        )}
+                                    </button>
                                     <button onClick={() => changePage('admin_stock')} className={`w-full text-left flex items-center px-6 py-4 sidebar-item ${page==='admin_stock'?'sidebar-active':''}`}><Icon icon="fa-cubes" className="w-6 text-center" /> <span className="ml-3 text-sm">จัดการคลังสินค้า</span></button>
                                     <button onClick={() => changePage('tax_invoice')} className={`w-full text-left flex items-center px-6 py-4 sidebar-item ${page==='tax_invoice'?'sidebar-active':''}`}><Icon icon="fa-file-invoice-dollar" className="w-6 text-center" /> <span className="ml-3 text-sm">ออกใบกำกับภาษี</span></button>
                                 </>
@@ -575,7 +1235,7 @@
                     {isSidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>}
 
                     <div className="flex-1 flex flex-col min-w-0 relative h-full">
-                        {/* Mobile Header Adjusted: Added pt-safe and pt-12 to move content down more clearly */}
+                        {/* Mobile Header Adjusted: Added pt-safe and pt-12 (3rem) for clear separation */}
                         <header className="bg-white shadow-sm h-auto min-h-[70px] flex items-center justify-between px-4 z-20 shrink-0 pt-safe pt-12 pb-4">
                             <div className="flex items-center">
                                 <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden text-gray-600 mr-4 p-2 rounded-full transition"><Icon icon="fa-bars" className="text-xl"/></button>
@@ -606,7 +1266,7 @@
                                             <input className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" placeholder="ค้นหาชื่อสินค้า..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
                                         </div>
                                         {/* Categories */}
-                                        <div className="flex gap-2 overflow-x-auto scrollbar-hide text-gray-800">
+                                        <div className="flex gap-2 overflow-x-auto scrollbar-hide text-gray-800 font-normal">
                                             {['All', ...new Set(products.map(p => p.category))].map(cat => <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${selectedCategory===cat?'bg-gray-800 text-white shadow':'bg-white border text-gray-600'}`}>{cat}</button>)}
                                         </div>
                                         
@@ -630,8 +1290,8 @@
                                     </div>
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 text-gray-800 font-bold">
                                         {displayedProducts.map(p => (
-                                            <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-lg transition border flex flex-col overflow-hidden group" onClick={() => handleAddToCartClick(p)}>
-                                                <div className="h-40 relative bg-gray-200 overflow-hidden text-gray-800">
+                                            <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-lg transition border flex flex-col overflow-hidden group font-normal" onClick={() => handleAddToCartClick(p)}>
+                                                <div className="h-40 relative bg-gray-200 overflow-hidden font-normal text-gray-800">
                                                     <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition duration-500 font-normal" onError={(e)=>e.target.src='https://via.placeholder.com/150'} />
                                                     {p.stock <= 5 && <span className="absolute top-2 right-2 bg-red-600 text-white text-[10px] px-2 py-1 rounded-full font-bold shadow-md animate-pulse">เหลือน้อย</span>}
                                                 </div>
@@ -646,7 +1306,7 @@
                                 </div>
                             )}
 
-                            {page === 'admin_orders' && (<div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800">
+                            {page === 'admin_orders' && (<div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800 font-normal">
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 text-sm font-bold">
                                     <div className="flex flex-wrap items-center gap-4 mb-4 font-normal">
                                         <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
@@ -710,7 +1370,7 @@
                                 <div className="fade-in max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-800 font-bold">
                                     <h3 className="text-xl font-bold mb-6 border-b pb-2"><Icon icon="fa-user-circle" className="mr-1"/> แก้ไขข้อมูลส่วนตัว</h3>
                                     <div className="space-y-4 font-normal">
-                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
+                                        <div><label className="block font-bold text-gray-500 mb-1">ชื่อร้าน / ผู้ติดต่อ</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} /></div>
                                         <div><label className="block font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} /></div>
                                         <div><label className="block font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง</label><textarea className="w-full border rounded p-3 focus:ring-2 focus:ring-gray-800 outline-none transition" rows="3" value={profileForm.address} onChange={e => setProfileForm({...profileForm, address: e.target.value})}></textarea></div>
                                         <div className="pt-4 font-bold"><button onClick={handleUpdateProfile} className="bg-gray-900 text-white px-10 py-3 rounded-xl font-bold hover:bg-black transition shadow-lg active:scale-95 uppercase tracking-wider">บันทึกข้อมูลส่วนตัว</button></div>
@@ -732,22 +1392,460 @@
                                     </div>
                                 </div>
 
+                                {(() => {
+                                    const filteredStockProducts = products.filter(p => p.name.toLowerCase().includes(stockSearchTerm.toLowerCase()));
+                                    const displayedStockProducts = filteredStockProducts.slice((stockManagementPage - 1) * itemsPerPage, stockManagementPage * itemsPerPage);
+                                    
+                                    return (
+                                        <div>
                                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden font-normal">
                                 <table className="w-full text-left text-sm text-gray-700 font-normal">
                                     <thead className="bg-gray-100 font-bold uppercase text-xs text-gray-600 font-bold">
                                         <tr><th className="p-4">สินค้า</th><th className="p-4 text-center">คงเหลือ</th><th className="p-4 text-right">จัดการ</th></tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {products.filter(p => p.name.toLowerCase().includes(stockSearchTerm.toLowerCase())).map(p => (
+                                                        {displayedStockProducts.map(p => (
                                             <tr key={p.id} className="hover:bg-gray-50">
                                                 <td className="p-4 font-bold">{p.name}<div className="text-[10px] text-gray-400 font-normal uppercase mt-1">{p.category}</div></td>
                                                 <td className="p-4 text-center font-bold"><span className={`px-2 py-1 rounded text-xs font-bold ${p.stock < 10 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{p.stock}</span></td>
-                                                <td className="p-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleEditStock(p)} className="p-2 bg-gray-100 rounded hover:bg-gray-200 transition"><Icon icon="fa-edit" className="text-blue-600"/></button><button onClick={()=>handleUpdateStock(p.id, p.stock+10)} className="p-2 bg-green-100 text-green-700 rounded hover:bg-green-200 transition"><Icon icon="fa-plus"/></button></div></td>
+                                                <td className="p-4 text-right"><div className="flex justify-end gap-2">
+                                                    <button onClick={() => handleEditStock(p)} className="p-2 bg-gray-100 rounded hover:bg-gray-200 transition text-xs flex items-center gap-1 border border-gray-300 font-bold text-gray-600"><Icon icon="fa-edit"/> แก้ไข</button>
+                                                    <button onClick={()=>handleRestock(p)} className="p-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-xs flex items-center gap-1 font-bold"><Icon icon="fa-plus"/> เติมของ</button>
+                                                </div></td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
-                            </div></div>)}
+                                            </div>
+                                            {filteredStockProducts.length > itemsPerPage && (
+                                                <div className="mt-4">
+                                                    <Pagination 
+                                                        totalItems={filteredStockProducts.length} 
+                                                        itemsPerPage={itemsPerPage} 
+                                                        currentPage={stockManagementPage} 
+                                                        onPageChange={(page) => {
+                                                            setStockManagementPage(page);
+                                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                        }} 
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                            </div>)}
+
+                            {page === 'stock_alert' && (
+                                <div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800 font-normal">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <div>
+                                            <h3 className="text-xl font-bold">แจ้งเตือนสต็อกต่ำ</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                พบสินค้าที่สต็อกต่ำกว่า minStock จำนวน <span className="font-bold text-red-600">{lowStockCount}</span> รายการ
+                                            </p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => fetchProducts()} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition">
+                                                <Icon icon="fa-sync" /> Refresh
+                                            </button>
+                                            {filteredLowStockProducts.length > 0 && (
+                                                <button 
+                                                    onClick={() => {
+                                                        Swal.fire({
+                                                            title: 'สร้าง PO อัตโนมัติ',
+                                                            text: `ต้องการสร้าง PO สำหรับสินค้าที่เลือกทั้งหมด (${filteredLowStockProducts.length} รายการ) หรือไม่?`,
+                                                            icon: 'question',
+                                                            showCancelButton: true,
+                                                            confirmButtonText: 'ยืนยัน',
+                                                            cancelButtonText: 'ยกเลิก',
+                                                            confirmButtonColor: THEME_COLOR
+                                                        }).then((result) => {
+                                                            if (result.isConfirmed) {
+                                                                handleAutoCreatePO(filteredLowStockProducts);
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-emerald-700 transition shadow-sm"
+                                                >
+                                                    <Icon icon="fa-magic" className="mr-1" /> สร้าง PO อัตโนมัติ
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Search */}
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4">
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
+                                            <input 
+                                                className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
+                                                placeholder="ค้นหาสินค้าที่สต็อกต่ำ..." 
+                                                value={stockAlertSearch} 
+                                                onChange={e => setStockAlertSearch(e.target.value)} 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Low Stock Products List */}
+                                    {filteredLowStockProducts.length === 0 ? (
+                                        <div className="text-center py-20 text-gray-400 bg-white rounded-xl border border-dashed">
+                                            {lowStockProducts.length === 0 
+                                                ? '🎉 ไม่มีสินค้าที่สต็อกต่ำ - ทุกอย่างพร้อม!'
+                                                : 'ไม่พบสินค้าที่ตรงกับการค้นหา'
+                                            }
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                                            <table className="w-full text-left text-sm text-gray-700">
+                                                <thead className="bg-red-50 font-bold uppercase text-xs text-gray-600">
+                                                    <tr>
+                                                        <th className="p-4 w-12">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="rounded"
+                                                                checked={(() => {
+                                                                    const currentPageProducts = filteredLowStockProducts.slice((stockAlertPage - 1) * itemsPerPage, stockAlertPage * itemsPerPage);
+                                                                    return currentPageProducts.length > 0 && currentPageProducts.every(p => {
+                                                                        const selected = document.querySelector(`input[data-product-id="${p.id}"]`);
+                                                                        return selected?.checked;
+                                                                    });
+                                                                })()}
+                                                                onChange={(e) => {
+                                                                    const currentPageProducts = filteredLowStockProducts.slice((stockAlertPage - 1) * itemsPerPage, stockAlertPage * itemsPerPage);
+                                                                    currentPageProducts.forEach(product => {
+                                                                        const checkbox = document.querySelector(`input[data-product-id="${product.id}"]`);
+                                                                        if (checkbox) checkbox.checked = e.target.checked;
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </th>
+                                                        <th className="p-4">สินค้า</th>
+                                                        <th className="p-4 text-center">สต็อกปัจจุบัน</th>
+                                                        <th className="p-4 text-center">Min Stock</th>
+                                                        <th className="p-4 text-center">ขาด</th>
+                                                        <th className="p-4 text-center">แนะนำสั่ง</th>
+                                                        <th className="p-4 text-right">จัดการ</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {filteredLowStockProducts.slice((stockAlertPage - 1) * itemsPerPage, stockAlertPage * itemsPerPage).map(product => {
+                                                        const stock = Number(product.stock) || 0;
+                                                        const minStock = Number(product.minStock) || 5;
+                                                        const shortage = minStock - stock;
+                                                        const recommendedQty = Math.max(minStock * 2 - stock, minStock);
+                                                        
+                                                        return (
+                                                            <tr key={product.id} className="hover:bg-gray-50">
+                                                                <td className="p-4">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        className="rounded"
+                                                                        data-product-id={product.id}
+                                                                    />
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <div className="font-bold">{product.name}</div>
+                                                                    <div className="text-xs text-gray-400 mt-1">
+                                                                        {product.category} | {product.supplier || 'ไม่ระบุ'}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-4 text-center">
+                                                                    <span className={`px-3 py-1 rounded text-sm font-bold ${
+                                                                        stock === 0 ? 'bg-red-200 text-red-900' :
+                                                                        stock <= minStock / 2 ? 'bg-orange-100 text-orange-800' :
+                                                                        'bg-yellow-100 text-yellow-800'
+                                                                    }`}>
+                                                                        {stock} {product.unit || 'ชิ้น'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 text-center font-bold">{minStock} {product.unit || 'ชิ้น'}</td>
+                                                                <td className="p-4 text-center">
+                                                                    <span className="text-red-600 font-bold">{shortage > 0 ? `-${shortage}` : '0'}</span>
+                                                                </td>
+                                                                <td className="p-4 text-center">
+                                                                    <span className="text-emerald-600 font-bold">{recommendedQty} {product.unit || 'ชิ้น'}</span>
+                                                                </td>
+                                                                <td className="p-4 text-right">
+                                                                    <div className="flex justify-end gap-2">
+                                                                        <button 
+                                                                            onClick={() => {
+                                                                                setPoItems([{
+                                                                                    productId: product.id,
+                                                                                    productName: product.name,
+                                                                                    qty: recommendedQty,
+                                                                                    price: product.price || 0
+                                                                                }]);
+                                                                                setPoSupplier(product.supplier || '');
+                                                                                setIsPOModalOpen(true);
+                                                                            }}
+                                                                            className="p-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-xs flex items-center gap-1 font-bold"
+                                                                        >
+                                                                            <Icon icon="fa-shopping-cart" /> สร้าง PO
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => handleRestock(product)}
+                                                                            className="p-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-xs flex items-center gap-1 font-bold"
+                                                                        >
+                                                                            <Icon icon="fa-plus" /> เติมสต็อก
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })} 
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Pagination for Stock Alert */}
+                                    {filteredLowStockProducts.length > itemsPerPage && (
+                                        <div className="mt-4">
+                                            <Pagination 
+                                                totalItems={filteredLowStockProducts.length} 
+                                                itemsPerPage={itemsPerPage} 
+                                                currentPage={stockAlertPage} 
+                                                onPageChange={(page) => {
+                                                    setStockAlertPage(page);
+                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                }} 
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Summary Card */}
+                                    {filteredLowStockProducts.length > 0 && (
+                                        <div className="bg-gradient-to-r from-red-50 to-orange-50 p-6 rounded-xl border-2 border-red-200">
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <h4 className="font-bold text-lg text-red-800 mb-2">
+                                                        <Icon icon="fa-exclamation-triangle" className="mr-2" />
+                                                        สรุปสินค้าที่ต้องเติม
+                                                    </h4>
+                                                    <p className="text-sm text-gray-700">
+                                                        พบสินค้าที่สต็อกต่ำ <span className="font-bold text-red-600">{filteredLowStockProducts.length}</span> รายการ
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        const selectedProducts = filteredLowStockProducts.filter(product => {
+                                                            const checkbox = document.querySelector(`input[data-product-id="${product.id}"]`);
+                                                            return checkbox?.checked;
+                                                        });
+                                                        
+                                                        if (selectedProducts.length === 0) {
+                                                            showError('กรุณาเลือกสินค้าที่ต้องการสร้าง PO');
+                                                            return;
+                                                        }
+                                                        
+                                                        handleAutoCreatePO(selectedProducts);
+                                                    }}
+                                                    className="bg-red-600 text-white px-6 py-3 rounded-lg text-sm font-bold hover:bg-red-700 transition shadow-lg"
+                                                >
+                                                    <Icon icon="fa-magic" className="mr-2" />
+                                                    สร้าง PO สำหรับสินค้าที่เลือก
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {page === 'purchase_order' && (
+                                <div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800 font-normal">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-xl font-bold">Purchase Order (PO)</h3>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => fetchPOs()} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition">
+                                                <Icon icon="fa-sync" /> Refresh
+                                            </button>
+                                            <button onClick={openCreatePOModal} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-emerald-700 transition shadow-sm">
+                                                <Icon icon="fa-plus" className="mr-1" /> สร้าง PO ใหม่
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Search & Filter */}
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 space-y-3">
+                                        {/* Search */}
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
+                                            <input 
+                                                className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
+                                                placeholder="ค้นหา PO ID, ซัพพลายเออร์, หรือหมายเหตุ..." 
+                                                value={poSearchTerm} 
+                                                onChange={e => setPoSearchTerm(e.target.value)} 
+                                            />
+                                        </div>
+                                        {/* Status Filter */}
+                                        <div className="flex gap-2 flex-wrap">
+                                            {['All', 'รออนุมัติ', 'อนุมัติแล้ว', 'กำลังจัดส่ง', 'รับสินค้าแล้ว'].map(status => (
+                                                <button
+                                                    key={status}
+                                                    onClick={() => setPoStatusFilter(status)}
+                                                    className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
+                                                        poStatusFilter === status
+                                                            ? 'bg-gray-800 text-white'
+                                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                    }`}
+                                                >
+                                                    {status}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* PO List - Grouped by Supplier */}
+                                    {(() => {
+                                        // จัดกลุ่ม PO ตามซัพพลายเออร์
+                                        const posBySupplier = {};
+                                        filteredPOs.forEach(po => {
+                                            const supplier = po.supplier || 'ไม่ระบุ';
+                                            if (!posBySupplier[supplier]) {
+                                                posBySupplier[supplier] = [];
+                                            }
+                                            posBySupplier[supplier].push(po);
+                                        });
+
+                                        const suppliers = Object.keys(posBySupplier).sort();
+
+                                        if (filteredPOs.length === 0) {
+                                            return (
+                                                <div className="text-center py-20 text-gray-400 bg-white rounded-xl border border-dashed">
+                                                    ยังไม่มี Purchase Order
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <div className="space-y-6">
+                                                {suppliers.map(supplier => (
+                                                    <div key={supplier} className="bg-gradient-to-r from-gray-50 to-white rounded-xl border-2 border-gray-200 overflow-hidden">
+                                                        {/* Supplier Header */}
+                                                        <div className="bg-gray-800 text-white p-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-3">
+                                                                    <Icon icon="fa-building" className="text-xl" />
+                                                                    <div>
+                                                                        <h3 className="font-bold text-lg">{supplier}</h3>
+                                                                        <p className="text-xs text-gray-300 mt-1">
+                                                                            {posBySupplier[supplier].length} PO
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-xs text-gray-300">ยอดรวมทั้งหมด</p>
+                                                                    <p className="text-xl font-bold">
+                                                                        ฿{posBySupplier[supplier].reduce((sum, po) => sum + Number(po.totalAmount || 0), 0).toLocaleString()}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* PO Items */}
+                                                        <div className="p-4 space-y-3">
+                                                            {posBySupplier[supplier].map(po => (
+                                                                <div key={po.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
+                                                                    <div className="flex justify-between items-start mb-3">
+                                                                        <div className="flex-1">
+                                                                            <div className="flex items-center gap-2 mb-2">
+                                                                                <h4 className="font-bold text-base text-gray-800 uppercase">{po.id}</h4>
+                                                                                <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                                                    po.status === 'รออนุมัติ' ? 'bg-yellow-100 text-yellow-800' :
+                                                                                    po.status === 'อนุมัติแล้ว' ? 'bg-blue-100 text-blue-800' :
+                                                                                    po.status === 'กำลังจัดส่ง' ? 'bg-purple-100 text-purple-800' :
+                                                                                    'bg-green-100 text-green-800'
+                                                                                }`}>
+                                                                                    {po.status}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 space-y-1">
+                                                                                <p>สร้างเมื่อ: {po.createdDate} | โดย: {po.createdBy}</p>
+                                                                                {po.expectedDate && (
+                                                                                    <p>วันที่คาดว่าจะได้รับ: {po.expectedDate}</p>
+                                                                                )}
+                                                                                {po.notes && (
+                                                                                    <p className="text-gray-400 italic">หมายเหตุ: {po.notes}</p>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-right ml-4">
+                                                                            <div className="text-lg font-bold text-emerald-700 mb-2">
+                                                                                ฿{Number(po.totalAmount).toLocaleString()}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex flex-wrap gap-2 justify-end pt-3 border-t mt-3">
+                                                                        {po.status === 'รออนุมัติ' && (
+                                                                            <>
+                                                                                <button
+                                                                                    onClick={() => handleUpdatePOStatus(po.id, 'อนุมัติแล้ว')}
+                                                                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition"
+                                                                                >
+                                                                                    <Icon icon="fa-check" className="mr-1" /> อนุมัติ
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => handleUpdatePOStatus(po.id, 'ยกเลิก')}
+                                                                                    className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-700 transition"
+                                                                                >
+                                                                                    <Icon icon="fa-times" className="mr-1" /> ยกเลิก
+                                                                                </button>
+                                                                            </>
+                                                                        )}
+                                                                        {po.status === 'อนุมัติแล้ว' && (
+                                                                            <button
+                                                                                onClick={() => handleUpdatePOStatus(po.id, 'กำลังจัดส่ง')}
+                                                                                className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 transition"
+                                                                            >
+                                                                                <Icon icon="fa-truck" className="mr-1" /> กำลังจัดส่ง
+                                                                            </button>
+                                                                        )}
+                                                                        {po.status === 'กำลังจัดส่ง' && (
+                                                                            <button
+                                                                                onClick={() => handleReceivePO(po)}
+                                                                                className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-green-700 transition"
+                                                                            >
+                                                                                <Icon icon="fa-check-circle" className="mr-1" /> รับสินค้า
+                                                                            </button>
+                                                                        )}
+                                                                        <button
+                                                                            onClick={async () => {
+                                                                                const res = await callAPI({ action: 'getPO', poId: po.id });
+                                                                if (res.success) {
+                                                                    Swal.fire({
+                                                                        title: `รายละเอียด ${po.id}`,
+                                                                        html: `
+                                                                            <div class="text-left">
+                                                                                <p><strong>ซัพพลายเออร์:</strong> ${res.po.supplier}</p>
+                                                                                <p><strong>สถานะ:</strong> ${res.po.status}</p>
+                                                                                <p><strong>ยอดรวม:</strong> ฿${Number(res.po.totalAmount).toLocaleString()}</p>
+                                                                                <hr class="my-3">
+                                                                                <p><strong>รายการสินค้า:</strong></p>
+                                                                                <ul class="list-disc list-inside">
+                                                                                    ${res.po.items.map(item => `<li>${item.productName} x${item.qty} @ ฿${Number(item.price).toLocaleString()} = ฿${Number(item.total).toLocaleString()}</li>`).join('')}
+                                                                                </ul>
+                                                                            </div>
+                                                                        `,
+                                                                        confirmButtonColor: THEME_COLOR
+                                                                    });
+                                                                }
+                                                            }}
+                                                                            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-gray-200 transition"
+                                                                        >
+                                                                            <Icon icon="fa-eye" className="mr-1" /> ดูรายละเอียด
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
                         </main>
                     </div>
                 </div>
@@ -896,9 +1994,285 @@
                         </div>
                     </div>
                 )}
+
+                {/* Create PO Modal */}
+                {isPOModalOpen && (
+                    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 text-gray-800 font-normal">
+                        <div className="absolute inset-0 bg-black bg-opacity-70" onClick={() => setIsPOModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh] font-normal">
+                            <div className="p-4 bg-gray-800 text-white font-bold flex justify-between items-center">
+                                <span><Icon icon="fa-shopping-cart" className="mr-2" />สร้าง Purchase Order ใหม่</span>
+                                <button onClick={() => setIsPOModalOpen(false)}><Icon icon="fa-times" /></button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+                                <div className="space-y-4 mb-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">ชื่อซัพพลายเออร์ *</label>
+                                        <div className="relative">
+                                            <select
+                                                className="w-full border rounded p-3 outline-none focus:ring-2 focus:ring-gray-800 appearance-none bg-white"
+                                                value={poSupplier}
+                                                onChange={e => {
+                                                    const value = e.target.value;
+                                                    if (value === '__custom__') {
+                                                        Swal.fire({
+                                                            title: 'ระบุชื่อซัพพลายเออร์',
+                                                            input: 'text',
+                                                            inputPlaceholder: 'กรอกชื่อซัพพลายเออร์',
+                                                            showCancelButton: true,
+                                                            confirmButtonText: 'ยืนยัน',
+                                                            confirmButtonColor: THEME_COLOR,
+                                                            inputValidator: (value) => {
+                                                                if (!value || value.trim() === '') {
+                                                                    return 'กรุณาระบุชื่อซัพพลายเออร์';
+                                                                }
+                                                            }
+                                                        }).then((result) => {
+                                                            if (result.isConfirmed && result.value) {
+                                                                setPoSupplier(result.value.trim());
+                                                            }
+                                                        });
+                                                    } else {
+                                                        setPoSupplier(value);
+                                                    }
+                                                }}
+                                            >
+                                                <option value="">-- เลือกซัพพลายเออร์ --</option>
+                                                {uniqueSuppliers.filter(sup => sup !== 'All').map(supplier => (
+                                                    <option key={supplier} value={supplier}>{supplier}</option>
+                                                ))}
+                                                <option value="__custom__">+ เพิ่มซัพพลายเออร์ใหม่</option>
+                                            </select>
+                                            <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                                                <Icon icon="fa-chevron-down" />
+                                            </div>
+                                        </div>
+                                        {poSupplier && poSupplier !== '' && (
+                                            <div className="mt-2 text-sm text-gray-600">
+                                                <Icon icon="fa-check-circle" className="text-green-500 mr-1" />
+                                                เลือก: <strong>{poSupplier}</strong>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">วันที่คาดว่าจะได้รับ</label>
+                                            <input
+                                                type="date"
+                                                className="w-full border rounded p-3 outline-none focus:ring-2 focus:ring-gray-800"
+                                                value={poExpectedDate}
+                                                onChange={e => setPoExpectedDate(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">หมายเหตุ</label>
+                                        <textarea
+                                            className="w-full border rounded p-3 outline-none focus:ring-2 focus:ring-gray-800"
+                                            rows="2"
+                                            value={poNotes}
+                                            onChange={e => setPoNotes(e.target.value)}
+                                            placeholder="หมายเหตุเพิ่มเติม..."
+                                        />
+                                    </div>
+                                </div>
+
+                                    <div className="mb-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-sm font-bold text-gray-700">รายการสินค้า</label>
+                                    </div>
+                                    
+                                    {/* ช่องค้นหาสินค้า */}
+                                    <div className="mb-3">
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
+                                            <input
+                                                className="w-full pl-10 p-3 border rounded-lg bg-white focus:ring-2 focus:ring-gray-800 outline-none transition"
+                                                placeholder="ค้นหาสินค้าเพื่อเพิ่มในรายการ..."
+                                                value={poProductSearch}
+                                                onChange={e => setPoProductSearch(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                    
+                                    {/* รายการสินค้าที่ค้นหาได้ */}
+                                    {poProductSearch.trim() !== '' && (
+                                        <div className="mb-3 max-h-48 overflow-y-auto border rounded-lg bg-white">
+                                            {products
+                                                .filter(p => p.name.toLowerCase().includes(poProductSearch.toLowerCase()))
+                                                .map(product => (
+                                                    <div
+                                                        key={product.id}
+                                                        onClick={() => {
+                                                            addPOItem(product);
+                                                            setPoProductSearch('');
+                                                        }}
+                                                        className="p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition flex justify-between items-center"
+                                                    >
+                                                        <div className="flex-1">
+                                                            <div className="font-bold text-sm">{product.name}</div>
+                                                            <div className="text-xs text-gray-500 mt-1">
+                                                                ฿{Number(product.price || 0).toLocaleString()} / {product.unit || 'ชิ้น'}
+                                                                <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold ${product.stock <= 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                                                                    คงเหลือ: {product.stock} {product.unit || 'ชิ้น'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <button className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">
+                                                            <Icon icon="fa-plus" className="mr-1" /> เพิ่ม
+                                                        </button>
+                                                    </div>
+                                                ))
+                                            }
+                                            {products.filter(p => p.name.toLowerCase().includes(poProductSearch.toLowerCase())).length === 0 && (
+                                                <div className="p-4 text-center text-gray-400 text-sm">ไม่พบสินค้า</div>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {/* ปุ่มเพิ่มสินค้า (ถ้าไม่ใช้ช่องค้นหา) */}
+                                    {poProductSearch.trim() === '' && (
+                                        <div className="mb-3">
+                                            <button
+                                                onClick={() => {
+                                                    const productOptions = products.map(p => ({
+                                                        value: p.id,
+                                                        text: `${p.name} - ฿${Number(p.price || 0).toLocaleString()} (คงเหลือ: ${p.stock} ${p.unit || 'ชิ้น'})`
+                                                    }));
+                                                    
+                                                    Swal.fire({
+                                                        title: 'เลือกสินค้า',
+                                                        input: 'select',
+                                                        inputOptions: productOptions.reduce((acc, opt, idx) => {
+                                                            acc[opt.value] = opt.text;
+                                                            return acc;
+                                                        }, {}),
+                                                        showCancelButton: true,
+                                                        confirmButtonText: 'เพิ่ม',
+                                                        confirmButtonColor: THEME_COLOR,
+                                                        inputValidator: (value) => {
+                                                            if (!value) {
+                                                                return 'กรุณาเลือกสินค้า';
+                                                            }
+                                                        }
+                                                    }).then((result) => {
+                                                        if (result.isConfirmed && result.value) {
+                                                            const selectedProduct = products.find(p => p.id === result.value);
+                                                            if (selectedProduct) {
+                                                                addPOItem(selectedProduct);
+                                                            }
+                                                        }
+                                                    });
+                                                }}
+                                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition w-full"
+                                            >
+                                                <Icon icon="fa-plus" className="mr-1" /> เพิ่มสินค้า
+                                            </button>
+                                        </div>
+                                    )}
+                                    {poItems.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded">
+                                            ยังไม่มีสินค้าในรายการ
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                                            {poItems.map((item, idx) => (
+                                                <div key={idx} className="bg-white p-3 rounded border flex justify-between items-center">
+                                                    <div className="flex-1">
+                                                        <div className="font-bold">{item.productName}</div>
+                                                        <div className="text-sm text-gray-500">฿{Number(item.price).toLocaleString()} / หน่วย</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <button onClick={() => updatePOItemQty(item.productId, -1)} className="w-8 h-8 bg-gray-100 rounded text-gray-600 hover:bg-red-50 hover:text-red-600">-</button>
+                                                        <span className="w-12 text-center font-bold">{item.qty}</span>
+                                                        <button onClick={() => updatePOItemQty(item.productId, 1)} className="w-8 h-8 bg-gray-100 rounded text-gray-600 hover:bg-green-50 hover:text-green-600">+</button>
+                                                        <div className="w-24 text-right font-bold text-emerald-700">
+                                                            ฿{(item.price * item.qty).toLocaleString()}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {poItems.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t flex justify-between items-center font-bold text-lg">
+                                            <span>ยอดรวม:</span>
+                                            <span className="text-emerald-700">฿{poItems.reduce((sum, item) => sum + (item.price * item.qty), 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="p-5 border-t bg-white">
+                                <button
+                                    onClick={handleCreatePO}
+                                    className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition"
+                                >
+                                    สร้าง PO
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Receive PO Modal */}
+                {isReceivePOModalOpen && selectedPO && (
+                    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 text-gray-800 font-normal">
+                        <div className="absolute inset-0 bg-black bg-opacity-70" onClick={() => setIsReceivePOModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh] font-normal">
+                            <div className="p-4 bg-gray-800 text-white font-bold flex justify-between items-center">
+                                <span><Icon icon="fa-check-circle" className="mr-2" />รับสินค้า {selectedPO.id}</span>
+                                <button onClick={() => setIsReceivePOModalOpen(false)}><Icon icon="fa-times" /></button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-600 mb-2"><strong>ซัพพลายเออร์:</strong> {selectedPO.supplier}</p>
+                                    <p className="text-sm text-gray-600"><strong>ยอดรวม:</strong> ฿{Number(selectedPO.totalAmount).toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-3">
+                                    {selectedPO.items.map((item, idx) => (
+                                        <div key={idx} className="bg-white p-4 rounded border">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div>
+                                                    <div className="font-bold">{item.productName}</div>
+                                                    <div className="text-sm text-gray-500">สั่ง: {item.qty} หน่วย @ ฿{Number(item.price).toLocaleString()}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <label className="text-sm font-bold">รับจริง:</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max={item.qty}
+                                                    className="w-24 border rounded p-2 text-center"
+                                                    defaultValue={item.qty}
+                                                    onChange={e => {
+                                                        const newItems = [...selectedPO.items];
+                                                        newItems[idx].receivedQty = parseInt(e.target.value) || 0;
+                                                        setSelectedPO({ ...selectedPO, items: newItems });
+                                                    }}
+                                                />
+                                                <span className="text-sm text-gray-500">/ {item.qty}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="p-5 border-t bg-white">
+                                <button
+                                    onClick={confirmReceivePO}
+                                    className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-700 transition"
+                                >
+                                    <Icon icon="fa-check" className="mr-2" /> ยืนยันรับสินค้า
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
       };
+
+      // Helper function for PO modal - ต้องใช้วิธีอื่นเพราะ React state
 
       const root = ReactDOM.createRoot(document.getElementById('root'));
       root.render(<App />);
