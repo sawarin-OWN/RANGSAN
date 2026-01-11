@@ -229,7 +229,13 @@
 
         const [dateStart, setDateStart] = useState('');
         const [dateEnd, setDateEnd] = useState('');
+        const [dateStartInput, setDateStartInput] = useState(''); // สำหรับเก็บค่าที่เลือก (รอกดปุ่มค้นหา)
+        const [dateEndInput, setDateEndInput] = useState(''); // สำหรับเก็บค่าที่เลือก (รอกดปุ่มค้นหา)
         const [adminStatusFilter, setAdminStatusFilter] = useState('All');
+        const [orderSearchTerm, setOrderSearchTerm] = useState(''); // ค้นหาแบบ real-time (ไม่ต้องกดปุ่ม)
+        const [franchiseStockLogStartDateInput, setFranchiseStockLogStartDateInput] = useState(''); // วันที่ที่เลือก (รอกดปุ่มค้นหา)
+        const [franchiseStockLogEndDateInput, setFranchiseStockLogEndDateInput] = useState(''); // วันที่ที่เลือก (รอกดปุ่มค้นหา)
+        const [franchiseStockLogSearchTerm, setFranchiseStockLogSearchTerm] = useState(''); // ค้นหาแบบ real-time (ไม่ต้องกดปุ่ม)
 
         const [profileForm, setProfileForm] = useState({ username: '', phone: '', address: '' });
         const [taxForm, setTaxForm] = useState({ taxName: '', taxId: '', taxAddr: '' });
@@ -319,7 +325,7 @@
                 if(!silent) Swal.close();
                 return { success: false, message: error.message || 'Unknown error' };
             }
-        }, [user, franchiseStockLogStartDate, franchiseStockLogEndDate]);
+        }, [user, franchiseStockLogStartDate, franchiseStockLogEndDate]); // จะถูกเรียกเมื่อ franchiseStockLogStartDate หรือ franchiseStockLogEndDate เปลี่ยน (จากการกดปุ่มค้นหา)
 
         const fetchDashboardData = useCallback(async (silent = false) => {
             setIsDashboardLoading(true);
@@ -503,15 +509,27 @@
                 const end = dateEnd ? new Date(dateEnd) : new Date();
                 end.setHours(23, 59, 59);
                 filtered = filtered.filter(order => {
-                    const oDate = parseThaiDate(order.date).getTime();
-                    return oDate >= start.getTime() && oDate <= end.getTime();
+                    const oDate = parseThaiDate(order.date);
+                    // ตรวจสอบว่า oDate ไม่ใช่ null ก่อนเรียก getTime()
+                    if (!oDate) return false;
+                    return oDate.getTime() >= start.getTime() && oDate.getTime() <= end.getTime();
                 });
             }
             if (adminStatusFilter !== 'All') {
                 filtered = filtered.filter(order => order.status === adminStatusFilter);
             }
+            // ค้นหาตาม orderSearchTerm (Order ID, Email, Username, Address)
+            if (orderSearchTerm.trim() !== '') {
+                const searchLower = orderSearchTerm.toLowerCase().trim();
+                filtered = filtered.filter(order => 
+                    (order.id && order.id.toLowerCase().includes(searchLower)) ||
+                    (order.user && order.user.toLowerCase().includes(searchLower)) ||
+                    (order.username && order.username.toLowerCase().includes(searchLower)) ||
+                    (order.address && order.address.toLowerCase().includes(searchLower))
+                );
+            }
             return filtered;
-        }, [allOrders, dateStart, dateEnd, adminStatusFilter]);
+        }, [allOrders, dateStart, dateEnd, adminStatusFilter, orderSearchTerm]);
 
         const adminStats = useMemo(() => {
             let baseOrders = allOrders;
@@ -521,6 +539,8 @@
                 end.setHours(23, 59, 59);
                 baseOrders = baseOrders.filter(order => {
                     const oDate = parseThaiDate(order.date);
+                    // ตรวจสอบว่า oDate ไม่ใช่ null ก่อนเปรียบเทียบ
+                    if (!oDate) return false;
                     return oDate >= start && oDate <= end;
                 });
             }
@@ -2332,11 +2352,40 @@
                             {page === 'admin_orders' && (<div className="fade-in max-w-6xl mx-auto space-y-4 text-gray-800 font-normal">
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 text-sm font-bold">
                                     <div className="flex flex-wrap items-center gap-4 mb-4 font-normal">
-                                        <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
-                                        <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateStart} onChange={e=>setDateStart(e.target.value)} />
-                                        <span>ถึง</span>
-                                        <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateEnd} onChange={e=>setDateEnd(e.target.value)} />
-                                        <button onClick={()=>{setDateStart('');setDateEnd('')}} className="text-red-500 text-xs hover:underline font-normal">Clear</button>
+                                        <div className="flex flex-wrap items-center gap-4">
+                                            <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
+                                            <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateStartInput} onChange={e=>setDateStartInput(e.target.value)} />
+                                            <span>ถึง</span>
+                                            <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateEndInput} onChange={e=>setDateEndInput(e.target.value)} />
+                                            <button 
+                                                onClick={() => {
+                                                    setDateStart(dateStartInput);
+                                                    setDateEnd(dateEndInput);
+                                                }}
+                                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition font-bold text-sm flex items-center gap-2"
+                                            >
+                                                <Icon icon="fa-search" /> ค้นหา
+                                            </button>
+                                            <input 
+                                                type="text" 
+                                                placeholder="ค้นหา Order ID, Email, ชื่อ, ที่อยู่..." 
+                                                className="border rounded p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-normal w-64"
+                                                value={orderSearchTerm}
+                                                onChange={e => setOrderSearchTerm(e.target.value)}
+                                            />
+                                            <button 
+                                                onClick={() => {
+                                                    setDateStartInput('');
+                                                    setDateEndInput('');
+                                                    setDateStart('');
+                                                    setDateEnd('');
+                                                    setOrderSearchTerm('');
+                                                }} 
+                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition font-bold text-sm flex items-center gap-2"
+                                            >
+                                                <Icon icon="fa-times" /> ล้างฟิลเตอร์
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-bold">
                                         <div onClick={()=>setAdminStatusFilter('All')} className={`p-4 rounded-lg border cursor-pointer transition ${adminStatusFilter==='All'?'bg-blue-600 text-white ring-2 ring-blue-300':'bg-blue-50 border-blue-100 text-blue-800 hover:bg-blue-100'}`}><div className="text-xs mb-1 opacity-80 uppercase font-normal">ยอดขายรวม</div><div className="text-lg font-bold">฿{adminStats.totalSales.toLocaleString()}</div><div className="text-[10px] font-normal opacity-70">รายการ {adminStats.totalOrders}</div></div>
@@ -2786,25 +2835,45 @@
                                             <input 
                                                 type="date" 
                                                 className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-normal" 
-                                                value={franchiseStockLogStartDate} 
-                                                onChange={e => setFranchiseStockLogStartDate(e.target.value)} 
+                                                value={franchiseStockLogStartDateInput} 
+                                                onChange={e => setFranchiseStockLogStartDateInput(e.target.value)} 
                                             />
                                             <span className="text-gray-600 font-bold">ถึง</span>
                                             <input 
                                                 type="date" 
                                                 className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-normal" 
-                                                value={franchiseStockLogEndDate} 
-                                                onChange={e => setFranchiseStockLogEndDate(e.target.value)} 
+                                                value={franchiseStockLogEndDateInput} 
+                                                onChange={e => setFranchiseStockLogEndDateInput(e.target.value)} 
                                             />
                                             <button 
                                                 onClick={() => {
+                                                    setFranchiseStockLogStartDate(franchiseStockLogStartDateInput);
+                                                    setFranchiseStockLogEndDate(franchiseStockLogEndDateInput);
+                                                    fetchFranchiseStockLog(false);
+                                                }}
+                                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-bold text-sm flex items-center gap-2"
+                                            >
+                                                <Icon icon="fa-search" /> ค้นหา
+                                            </button>
+                                            <input 
+                                                type="text" 
+                                                placeholder="ค้นหาสินค้า, Product ID, หมายเหตุ..." 
+                                                className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-normal w-64"
+                                                value={franchiseStockLogSearchTerm}
+                                                onChange={e => setFranchiseStockLogSearchTerm(e.target.value)}
+                                            />
+                                            <button 
+                                                onClick={() => {
+                                                    setFranchiseStockLogStartDateInput('');
+                                                    setFranchiseStockLogEndDateInput('');
                                                     setFranchiseStockLogStartDate('');
                                                     setFranchiseStockLogEndDate('');
+                                                    setFranchiseStockLogSearchTerm('');
                                                     fetchFranchiseStockLog();
                                                 }}
-                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-bold text-sm"
+                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-bold text-sm flex items-center gap-2"
                                             >
-                                                ล้างฟิลเตอร์
+                                                <Icon icon="fa-times" /> ล้างฟิลเตอร์
                                             </button>
                                         </div>
                                     </div>
@@ -2821,28 +2890,43 @@
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
-                                                {franchiseStockLog.length === 0 ? (
-                                                    <tr>
-                                                        <td colSpan="6" className="p-8 text-center text-gray-400">ไม่มีข้อมูล</td>
-                                                    </tr>
-                                                ) : (
-                                                    franchiseStockLog.map((log, index) => (
-                                                        <tr key={index} className="hover:bg-gray-50">
-                                                            <td className="p-4 font-normal">{log.timestamp}</td>
-                                                            <td className="p-4 font-bold">{log.productName} <span className="text-xs text-gray-400 font-normal">({log.productId})</span></td>
-                                                            <td className="p-4 text-center">
-                                                                <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                                    (log.type === 'IN' || log.type === 'ADD') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                                                }`}>
-                                                                    {(log.type === 'IN' || log.type === 'ADD') ? 'รับเข้า' : 'เบิกออก'}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-4 text-center font-bold">{log.quantity}</td>
-                                                            <td className="p-4 text-center font-bold">{log.balance}</td>
-                                                            <td className="p-4 font-normal">{log.note || '-'}</td>
+                                                {(() => {
+                                                    // กรองข้อมูลตาม franchiseStockLogSearchTerm
+                                                    const filteredLogs = franchiseStockLogSearchTerm.trim() !== '' 
+                                                        ? franchiseStockLog.filter(log => {
+                                                            const searchLower = franchiseStockLogSearchTerm.toLowerCase().trim();
+                                                            return (
+                                                                (log.productName && log.productName.toLowerCase().includes(searchLower)) ||
+                                                                (log.productId && log.productId.toLowerCase().includes(searchLower)) ||
+                                                                (log.note && log.note.toLowerCase().includes(searchLower)) ||
+                                                                (log.timestamp && log.timestamp.toLowerCase().includes(searchLower))
+                                                            );
+                                                        })
+                                                        : franchiseStockLog;
+                                                    
+                                                    return filteredLogs.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan="6" className="p-8 text-center text-gray-400">ไม่มีข้อมูล</td>
                                                         </tr>
-                                                    ))
-                                                )}
+                                                    ) : (
+                                                        filteredLogs.map((log, index) => (
+                                                            <tr key={index} className="hover:bg-gray-50">
+                                                                <td className="p-4 font-normal">{log.timestamp}</td>
+                                                                <td className="p-4 font-bold">{log.productName} <span className="text-xs text-gray-400 font-normal">({log.productId})</span></td>
+                                                                <td className="p-4 text-center">
+                                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                                        (log.type === 'IN' || log.type === 'ADD') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                                                    }`}>
+                                                                        {(log.type === 'IN' || log.type === 'ADD') ? 'รับเข้า' : 'เบิกออก'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 text-center font-bold">{log.quantity}</td>
+                                                                <td className="p-4 text-center font-bold">{log.balance}</td>
+                                                                <td className="p-4 font-normal">{log.note || '-'}</td>
+                                                            </tr>
+                                                        ))
+                                                    );
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
