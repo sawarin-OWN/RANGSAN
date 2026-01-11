@@ -102,7 +102,20 @@
           if (parts.length !== 3) return null;
           let year = parseInt(parts[2], 10);
           if (year > 2400) year -= 543; 
-          return new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)); 
+          const date = new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+          // Normalize เวลาเป็น 00:00:00 เพื่อการเปรียบเทียบที่ถูกต้อง
+          date.setHours(0, 0, 0, 0);
+          return date;
+        } catch (e) { return null; }
+      };
+
+      // Helper function สำหรับแปลงวันที่จาก ISO format (YYYY-MM-DD) เป็น Date object และ normalize เวลา
+      const parseISODate = (dateStr) => {
+        if (!dateStr) return null;
+        try {
+          const date = new Date(dateStr + 'T00:00:00'); // ใส่เวลา 00:00:00 เพื่อหลีกเลี่ยง timezone issues
+          date.setHours(0, 0, 0, 0); // Normalize เวลาเป็น 00:00:00
+          return date;
         } catch (e) { return null; }
       };
 
@@ -505,14 +518,23 @@
         const filteredAdminOrders = useMemo(() => {
             let filtered = allOrders;
             if (dateStart || dateEnd) {
-                const start = dateStart ? new Date(dateStart) : new Date('2000-01-01');
-                const end = dateEnd ? new Date(dateEnd) : new Date();
-                end.setHours(23, 59, 59);
+                // Parse วันที่จาก input (ISO format: YYYY-MM-DD)
+                const start = dateStart ? parseISODate(dateStart) : null;
+                const end = dateEnd ? parseISODate(dateEnd) : null;
+                if (end) {
+                    end.setHours(23, 59, 59, 999); // ตั้งเวลาเป็น 23:59:59.999 สำหรับวันสุดท้าย
+                }
+                
                 filtered = filtered.filter(order => {
+                    // Parse วันที่จาก order.date (รูปแบบไทย: DD/M/YYYY หรือ DD/MM/YYYY)
                     const oDate = parseThaiDate(order.date);
-                    // ตรวจสอบว่า oDate ไม่ใช่ null ก่อนเรียก getTime()
+                    // ตรวจสอบว่า oDate ไม่ใช่ null ก่อนเปรียบเทียบ
                     if (!oDate) return false;
-                    return oDate.getTime() >= start.getTime() && oDate.getTime() <= end.getTime();
+                    
+                    // เปรียบเทียบวันที่
+                    if (start && oDate < start) return false;
+                    if (end && oDate > end) return false;
+                    return true;
                 });
             }
             if (adminStatusFilter !== 'All') {
@@ -534,14 +556,23 @@
         const adminStats = useMemo(() => {
             let baseOrders = allOrders;
             if (dateStart || dateEnd) {
-                const start = dateStart ? new Date(dateStart) : new Date('2000-01-01');
-                const end = dateEnd ? new Date(dateEnd) : new Date();
-                end.setHours(23, 59, 59);
+                // Parse วันที่จาก input (ISO format: YYYY-MM-DD)
+                const start = dateStart ? parseISODate(dateStart) : null;
+                const end = dateEnd ? parseISODate(dateEnd) : null;
+                if (end) {
+                    end.setHours(23, 59, 59, 999); // ตั้งเวลาเป็น 23:59:59.999 สำหรับวันสุดท้าย
+                }
+                
                 baseOrders = baseOrders.filter(order => {
+                    // Parse วันที่จาก order.date (รูปแบบไทย: DD/M/YYYY หรือ DD/MM/YYYY)
                     const oDate = parseThaiDate(order.date);
                     // ตรวจสอบว่า oDate ไม่ใช่ null ก่อนเปรียบเทียบ
                     if (!oDate) return false;
-                    return oDate >= start && oDate <= end;
+                    
+                    // เปรียบเทียบวันที่
+                    if (start && oDate < start) return false;
+                    if (end && oDate > end) return false;
+                    return true;
                 });
             }
             return {
