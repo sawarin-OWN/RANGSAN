@@ -305,7 +305,13 @@
         const [showPassword, setShowPassword] = useState(false);
 
         const [searchTerm, setSearchTerm] = useState('');
-        const [stockSearchTerm, setStockSearchTerm] = useState(''); 
+        const [stockSearchTerm, setStockSearchTerm] = useState('');
+        const [searchResults, setSearchResults] = useState([]);
+        const [isSearching, setIsSearching] = useState(false);
+        const [searchTimeout, setSearchTimeout] = useState(null);
+        const [stockSearchResults, setStockSearchResults] = useState([]);
+        const [isStockSearching, setIsStockSearching] = useState(false);
+        const [stockSearchTimeout, setStockSearchTimeout] = useState(null); 
         const [selectedCategory, setSelectedCategory] = useState('All');
         const [selectedSupplier, setSelectedSupplier] = useState('All'); 
         
@@ -337,6 +343,16 @@
         const showError = (text) => Swal.fire({ icon: 'error', title: 'แจ้งเตือน', text, confirmButtonColor: '#d33' });
         const showSuccess = (title, text) => Swal.fire({ icon: 'success', title, text, confirmButtonColor: THEME_COLOR });
         const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+        
+        // Search loading popup
+        const showSearchLoading = () => {
+            Swal.fire({
+                title: 'กำลังค้นหา...',
+                text: 'กรุณารอสักครู่',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+        };
 
         // --- Fetch Data ---
         const fetchProducts = useCallback(async (forceRefresh = false) => { 
@@ -738,13 +754,137 @@
         }, [allOrders, dateStart, dateEnd]);
 
         const uniqueSuppliers = useMemo(() => ['All', ...new Set(products.map(p => p.supplier).filter(Boolean))], [products]);
-        // Filter ก่อน pagination - ค้นหาจากทั้งหมด
-        const filteredProductsList = useMemo(() => products.filter(p => {
-             const matchName = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-             const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
-             const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
-             return matchName && matchCat && matchSup;
-        }), [products, searchTerm, selectedCategory, selectedSupplier]);
+        
+        // Search function with debounce for home page
+        const performSearch = useCallback(async (term) => {
+            if (!term || term.trim() === '') {
+                setSearchResults([]);
+                setIsSearching(false);
+                Swal.close();
+                return;
+            }
+            
+            setIsSearching(true);
+            showSearchLoading();
+            try {
+                console.log('Searching for:', term);
+                const res = await callAPI({ action: 'searchProducts', searchTerm: term, userEmail: user?.email || null });
+                console.log('Search result:', res);
+                if (res && res.success) {
+                    const products = res.products || [];
+                    console.log('Found products:', products.length);
+                    setSearchResults(products);
+                } else {
+                    console.log('Search failed or no results');
+                    setSearchResults([]);
+                }
+            } catch (error) {
+                console.error('Search error:', error);
+                setSearchResults([]);
+            } finally {
+                setIsSearching(false);
+                Swal.close();
+            }
+        }, [user]);
+        
+        // Debounce search for home page
+        useEffect(() => {
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            
+            if (searchTerm.trim() !== '') {
+                const timeout = setTimeout(() => {
+                    performSearch(searchTerm);
+                }, 500); // 500ms debounce
+                setSearchTimeout(timeout);
+            } else {
+                setSearchResults([]);
+                setIsSearching(false);
+            }
+            
+            return () => {
+                if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                }
+            };
+        }, [searchTerm, performSearch]);
+        
+        // Search function for stock management
+        const performStockSearch = useCallback(async (term) => {
+            if (!term || term.trim() === '') {
+                setStockSearchResults([]);
+                setIsStockSearching(false);
+                Swal.close();
+                return;
+            }
+            
+            setIsStockSearching(true);
+            showSearchLoading();
+            try {
+                console.log('Stock searching for:', term);
+                const res = await callAPI({ action: 'searchProducts', searchTerm: term, userEmail: user?.email || null });
+                console.log('Stock search result:', res);
+                if (res && res.success) {
+                    const products = res.products || [];
+                    console.log('Found stock products:', products.length);
+                    setStockSearchResults(products);
+                } else {
+                    console.log('Stock search failed or no results');
+                    setStockSearchResults([]);
+                }
+            } catch (error) {
+                console.error('Stock search error:', error);
+                setStockSearchResults([]);
+            } finally {
+                setIsStockSearching(false);
+                Swal.close();
+            }
+        }, [user]);
+        
+        // Debounce search for stock management
+        useEffect(() => {
+            if (stockSearchTimeout) {
+                clearTimeout(stockSearchTimeout);
+            }
+            
+            if (stockSearchTerm.trim() !== '') {
+                const timeout = setTimeout(() => {
+                    performStockSearch(stockSearchTerm);
+                }, 500); // 500ms debounce
+                setStockSearchTimeout(timeout);
+            } else {
+                setStockSearchResults([]);
+                setIsStockSearching(false);
+            }
+            
+            return () => {
+                if (stockSearchTimeout) {
+                    clearTimeout(stockSearchTimeout);
+                }
+            };
+        }, [stockSearchTerm, performStockSearch]);
+        
+        // Filter ก่อน pagination - ใช้ searchResults ถ้ามีการค้นหา
+        const filteredProductsList = useMemo(() => {
+            // ถ้ามีการค้นหา (searchTerm มีค่า) ให้ใช้ searchResults เสมอ (แม้จะว่างก็ตาม)
+            // เพราะ searchResults มาจากการค้นหาจากฐานข้อมูลทั้งหมด
+            if (searchTerm.trim() !== '') {
+                // ใช้ searchResults ที่ค้นหาจาก backend แล้ว และ filter ด้วย category และ supplier
+                return searchResults.filter(p => {
+                    const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+                    const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
+                    return matchCat && matchSup;
+                });
+            } else {
+                // ถ้าไม่มี searchTerm ใช้ products และ filter ด้วย category และ supplier
+                return products.filter(p => {
+                    const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+                    const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
+                    return matchCat && matchSup;
+                });
+            }
+        }, [products, searchResults, searchTerm, selectedCategory, selectedSupplier]);
         // Pagination หลังจาก filter
         const displayedProducts = filteredProductsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -1015,7 +1155,9 @@
                 supplier: product.supplier || '',
                 unit: product.unit || 'ชิ้น',
                 weight: product.weight || '',
-                minStock: product.minStock || '5'
+                minStock: product.minStock || '5',
+                franchisePrice: product.franchisePrice || '',
+                cost: product.cost || ''
             });
             setIsEditProductModalOpen(true);
         };
@@ -1048,7 +1190,9 @@
                         supplier: editProductForm.supplier.trim() || '',
                         unit: editProductForm.unit.trim() || 'ชิ้น',
                         weight: Number(editProductForm.weight) || 0,
-                        minStock: Number(editProductForm.minStock) || 5
+                        minStock: Number(editProductForm.minStock) || 5,
+                        franchisePrice: Number(editProductForm.franchisePrice) || Number(editProductForm.price) || 0,
+                        cost: Number(editProductForm.cost) || 0
                     },
                     userEmail: user.email
                 });
@@ -1089,7 +1233,7 @@
                 showError('กรุณากรอกชื่อสินค้า');
                 return;
             }
-            if (!franchiseProductForm.price || Number(franchiseProductForm.price) <= 0) {
+            if (!franchiseProductForm.franchisePrice || Number(franchiseProductForm.franchisePrice) <= 0) {
                 showError('กรุณากรอกราคาสินค้า');
                 return;
             }
@@ -1102,7 +1246,7 @@
                         productId: franchiseProductForm.productId || '',
                         name: franchiseProductForm.name,
                         image: franchiseProductForm.image || '',
-                        price: Number(franchiseProductForm.price) || 0,
+                        price: Number(franchiseProductForm.franchisePrice) || 0, // ใช้ franchisePrice เป็น price
                         stock: Number(franchiseProductForm.stock) || 0,
                         category: franchiseProductForm.category || '',
                         detail: franchiseProductForm.detail || '',
@@ -1110,7 +1254,7 @@
                         unit: franchiseProductForm.unit || 'ชิ้น',
                         weight: Number(franchiseProductForm.weight) || 0,
                         minStock: Number(franchiseProductForm.minStock) || 5,
-                        franchisePrice: Number(franchiseProductForm.franchisePrice) || Number(franchiseProductForm.price) || 0
+                        franchisePrice: Number(franchiseProductForm.franchisePrice) || 0
                     },
                     userEmail: user.email
                 });
@@ -1267,7 +1411,9 @@
             supplier: '',
             unit: 'ชิ้น',
             weight: '',
-            minStock: '5'
+            minStock: '5',
+            franchisePrice: '',
+            cost: ''
         });
 
         // State สำหรับฟอร์มแก้ไขสินค้า
@@ -1281,7 +1427,9 @@
             supplier: '',
             unit: 'ชิ้น',
             weight: '',
-            minStock: '5'
+            minStock: '5',
+            franchisePrice: '',
+            cost: ''
         });
 
         const openAddProductModal = () => {
@@ -1296,7 +1444,9 @@
                 supplier: '',
                 unit: 'ชิ้น',
                 weight: '',
-                minStock: '5'
+                minStock: '5',
+                franchisePrice: '',
+                cost: ''
             });
             setIsAddProductModalOpen(true);
         };
@@ -1327,7 +1477,9 @@
                         supplier: productForm.supplier.trim() || '',
                         unit: productForm.unit.trim() || 'ชิ้น',
                         weight: Number(productForm.weight) || 0,
-                        minStock: Number(productForm.minStock) || 5
+                        minStock: Number(productForm.minStock) || 5,
+                        franchisePrice: Number(productForm.franchisePrice) || Number(productForm.price) || 0,
+                        cost: Number(productForm.cost) || 0
                     },
                     userEmail: user.email
                 });
@@ -2382,7 +2534,22 @@
                                     <div className="flex flex-col gap-4 mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                                         <div className="relative flex-grow">
                                             <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
-                                            <input className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" placeholder="ค้นหาชื่อสินค้า..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
+                                            <div className="relative">
+                                                <input 
+                                                    className="w-full pl-10 pr-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
+                                                    placeholder="ค้นหาชื่อสินค้า..." 
+                                                    value={searchTerm} 
+                                                    onChange={e => { 
+                                                        setSearchTerm(e.target.value); 
+                                                        setCurrentPage(1); 
+                                                    }} 
+                                                />
+                                                {isSearching && (
+                                                    <span className="absolute right-3 top-3 text-gray-400">
+                                                        <Icon icon="fa-spinner" className="animate-spin" />
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         {/* Categories */}
                                         <div className="flex gap-2 overflow-x-auto scrollbar-hide text-gray-800 font-normal">
@@ -2407,6 +2574,19 @@
                                             </div>
                                         </div>
                                     </div>
+                                    {isSearching && searchTerm.trim() !== '' && (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <Icon icon="fa-spinner" className="animate-spin text-2xl mb-2" />
+                                            <p>กำลังค้นหา...</p>
+                                        </div>
+                                    )}
+                                    {!isSearching && searchTerm.trim() !== '' && filteredProductsList.length === 0 && (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <Icon icon="fa-search" className="text-2xl mb-2" />
+                                            <p>ไม่พบสินค้าที่ค้นหา</p>
+                                        </div>
+                                    )}
+                                    {(!isSearching || searchTerm.trim() === '') && (
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 text-gray-800 font-bold">
                                         {displayedProducts.map(p => (
                                             <div key={p.id} className="bg-white rounded-xl shadow-sm hover:shadow-lg transition border flex flex-col overflow-hidden group font-normal" onClick={() => handleAddToCartClick(p)}>
@@ -2421,7 +2601,10 @@
                                             </div>
                                         ))}
                                     </div>
+                                    )}
+                                    {(!isSearching || searchTerm.trim() === '') && (
                                     <Pagination totalItems={filteredProductsList.length} itemsPerPage={itemsPerPage} currentPage={currentPage} onPageChange={setCurrentPage} />
+                                    )}
                                 </div>
                             )}
 
@@ -3180,16 +3363,30 @@
                                      <div className="relative">
                                         <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
                                         <input 
-                                            className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
+                                            className="w-full pl-10 pr-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
                                             placeholder="ค้นหาชื่อสินค้าเพื่อจัดการสต็อก..." 
                                             value={stockSearchTerm} 
                                             onChange={e => setStockSearchTerm(e.target.value)} 
                                         />
+                                        {isStockSearching && (
+                                            <span className="absolute right-3 top-3 text-gray-400">
+                                                <Icon icon="fa-spinner" className="animate-spin" />
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
                                 {(() => {
-                                    const filteredStockProducts = products.filter(p => p.name.toLowerCase().includes(stockSearchTerm.toLowerCase()));
+                                    // ใช้ searchResults ถ้ามีการค้นหา
+                                    let filteredStockProducts;
+                                    if (stockSearchTerm.trim() !== '') {
+                                        // ถ้ามีการค้นหา ใช้ stockSearchResults เสมอ (แม้จะว่างก็ตาม)
+                                        // เพราะ stockSearchResults มาจากการค้นหาจากฐานข้อมูลทั้งหมด
+                                        filteredStockProducts = stockSearchResults;
+                                    } else {
+                                        // ถ้าไม่มี stockSearchTerm ใช้ products
+                                        filteredStockProducts = products;
+                                    }
                                     const displayedStockProducts = filteredStockProducts.slice((stockManagementPage - 1) * itemsPerPage, stockManagementPage * itemsPerPage);
                                     
                                     return (
@@ -3200,7 +3397,23 @@
                                         <tr><th className="p-4">สินค้า</th><th className="p-4 text-center">คงเหลือ</th><th className="p-4 text-right">จัดการ</th></tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                                        {displayedStockProducts.map(p => (
+                                        {isStockSearching && stockSearchTerm.trim() !== '' && (
+                                            <tr>
+                                                <td colSpan="3" className="p-8 text-center text-gray-500">
+                                                    <Icon icon="fa-spinner" className="animate-spin text-2xl mb-2" />
+                                                    <p>กำลังค้นหา...</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {!isStockSearching && stockSearchTerm.trim() !== '' && displayedStockProducts.length === 0 && (
+                                            <tr>
+                                                <td colSpan="3" className="p-8 text-center text-gray-500">
+                                                    <Icon icon="fa-search" className="text-2xl mb-2" />
+                                                    <p>ไม่พบสินค้าที่ค้นหา</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {(!isStockSearching || stockSearchTerm.trim() === '') && displayedStockProducts.map(p => (
                                             <tr key={p.id} className="hover:bg-gray-50">
                                                 <td className="p-4 font-bold">{p.name}<div className="text-[10px] text-gray-400 font-normal uppercase mt-1">{p.category}</div></td>
                                                 <td className="p-4 text-center font-bold"><span className={`px-2 py-1 rounded text-xs font-bold ${p.stock < 10 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{p.stock}</span></td>
@@ -4201,6 +4414,30 @@
                                             />
                                         </div>
                                         <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">ราคาแฟรนไชส์</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                placeholder="ถ้าไม่กรอกจะใช้ราคาปกติ"
+                                                value={productForm.franchisePrice}
+                                                onChange={e => setProductForm({...productForm, franchisePrice: e.target.value})}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">ต้นทุนสินค้า</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                placeholder="0"
+                                                value={productForm.cost}
+                                                onChange={e => setProductForm({...productForm, cost: e.target.value})}
+                                            />
+                                        </div>
+                                        <div>
                                             <label className="block text-sm font-bold text-gray-700 mb-1">สต็อกเริ่มต้น</label>
                                             <input
                                                 type="number"
@@ -4344,6 +4581,30 @@
                                                 value={editProductForm.price}
                                                 onChange={e => setEditProductForm({...editProductForm, price: e.target.value})}
                                                 required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">ราคาแฟรนไชส์</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="ถ้าไม่กรอกจะใช้ราคาปกติ"
+                                                value={editProductForm.franchisePrice}
+                                                onChange={e => setEditProductForm({...editProductForm, franchisePrice: e.target.value})}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">ต้นทุนสินค้า</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="0"
+                                                value={editProductForm.cost}
+                                                onChange={e => setEditProductForm({...editProductForm, cost: e.target.value})}
                                             />
                                         </div>
                                         <div>
@@ -4574,16 +4835,6 @@
                                                 type="number"
                                                 className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
                                                 placeholder="0"
-                                                value={franchiseProductForm.price}
-                                                onChange={e => setFranchiseProductForm({...franchiseProductForm, price: e.target.value})}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-1">ราคาแฟรนไชส์</label>
-                                            <input
-                                                type="number"
-                                                className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
-                                                placeholder="ถ้าไม่กรอกจะใช้ราคาปกติ"
                                                 value={franchiseProductForm.franchisePrice}
                                                 onChange={e => setFranchiseProductForm({...franchiseProductForm, franchisePrice: e.target.value})}
                                             />
