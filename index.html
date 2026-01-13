@@ -222,6 +222,19 @@
         const [allOrders, setAllOrders] = useState([]); 
         const [purchaseOrders, setPurchaseOrders] = useState([]);
         const [isLoading, setIsLoading] = useState(true);
+        
+        // Frontend Caching (Phase 1)
+        const [productsCache, setProductsCache] = useState(null);
+        const [productsCacheTimestamp, setProductsCacheTimestamp] = useState(null);
+        const [ordersCache, setOrdersCache] = useState(null);
+        const [ordersCacheTimestamp, setOrdersCacheTimestamp] = useState(null);
+        const [allOrdersCache, setAllOrdersCache] = useState(null);
+        const [allOrdersCacheTimestamp, setAllOrdersCacheTimestamp] = useState(null);
+        const [purchaseOrdersCache, setPurchaseOrdersCache] = useState(null);
+        const [purchaseOrdersCacheTimestamp, setPurchaseOrdersCacheTimestamp] = useState(null);
+        const [franchiseStockCache, setFranchiseStockCache] = useState(null);
+        const [franchiseStockCacheTimestamp, setFranchiseStockCacheTimestamp] = useState(null);
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 นาที
         const [isSidebarOpen, setIsSidebarOpen] = useState(false);
         const [isCartOpen, setIsCartOpen] = useState(false); 
         const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -326,54 +339,126 @@
         const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
 
         // --- Fetch Data ---
-        const fetchProducts = useCallback(async () => { 
+        const fetchProducts = useCallback(async (forceRefresh = false) => { 
             try {
+                // ตรวจสอบ cache
+                if (!forceRefresh && productsCache && productsCacheTimestamp) {
+                    const now = Date.now();
+                    if (now - productsCacheTimestamp < CACHE_DURATION) {
+                        console.log('Using cached products');
+                        setProducts(productsCache);
+                        return { success: true, products: productsCache };
+                    }
+                }
+                
+                // ดึงข้อมูลใหม่
                 const res = await callAPI({ action: 'getProducts', userEmail: user?.email || null }); 
-                if (res && res.success) setProducts(res.products || []); 
+                if (res && res.success) {
+                    setProductsCache(res.products || []);
+                    setProductsCacheTimestamp(Date.now());
+                    setProducts(res.products || []);
+                }
                 return res || { success: false };
             } catch (error) {
                 console.error('Error fetching products:', error);
                 return { success: false, message: error.message || 'Unknown error' };
             }
-        }, [user]);
+        }, [user, productsCache, productsCacheTimestamp]);
 
-        const fetchHistory = useCallback(async (silent=false) => {
+        const fetchHistory = useCallback(async (silent=false, forceRefresh = false) => {
+            // ตรวจสอบ cache
+            if (!forceRefresh && ordersCache && ordersCacheTimestamp) {
+                const now = Date.now();
+                if (now - ordersCacheTimestamp < CACHE_DURATION) {
+                    console.log('Using cached orders');
+                    setOrders(ordersCache);
+                    return { success: true, orders: ordersCache };
+                }
+            }
+            
             if(!silent) Swal.fire({ title: 'กำลังโหลด...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             const res = await callAPI({ action: 'getMyOrders', email: user?.email });
             if(!silent) Swal.close();
-            if (res.success) setOrders(res.orders);
+            if (res.success) {
+                setOrdersCache(res.orders);
+                setOrdersCacheTimestamp(Date.now());
+                setOrders(res.orders);
+            }
             return res;
-        }, [user]);
+        }, [user, ordersCache, ordersCacheTimestamp]);
         
-        const fetchAllOrders = useCallback(async (silent=false) => {
+        const fetchAllOrders = useCallback(async (silent=false, forceRefresh = false) => {
+            // ตรวจสอบ cache
+            if (!forceRefresh && allOrdersCache && allOrdersCacheTimestamp) {
+                const now = Date.now();
+                if (now - allOrdersCacheTimestamp < CACHE_DURATION) {
+                    console.log('Using cached all orders');
+                    setAllOrders(allOrdersCache);
+                    return { success: true, orders: allOrdersCache };
+                }
+            }
+            
             if(!silent) Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             const res = await callAPI({ action: 'getAllOrders' });
             if(!silent) Swal.close();
-            if (res.success) setAllOrders(res.orders);
+            if (res.success) {
+                setAllOrdersCache(res.orders);
+                setAllOrdersCacheTimestamp(Date.now());
+                setAllOrders(res.orders);
+            }
             return res;
-        }, []);
+        }, [allOrdersCache, allOrdersCacheTimestamp]);
 
-        const fetchPOs = useCallback(async (silent=false) => {
+        const fetchPOs = useCallback(async (silent=false, forceRefresh = false) => {
+            // ตรวจสอบ cache
+            if (!forceRefresh && purchaseOrdersCache && purchaseOrdersCacheTimestamp) {
+                const now = Date.now();
+                if (now - purchaseOrdersCacheTimestamp < CACHE_DURATION) {
+                    console.log('Using cached purchase orders');
+                    setPurchaseOrders(purchaseOrdersCache);
+                    return { success: true, pos: purchaseOrdersCache };
+                }
+            }
+            
             if(!silent) Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             const res = await callAPI({ action: 'getPOs' });
             if(!silent) Swal.close();
-            if (res.success) setPurchaseOrders(res.pos);
+            if (res.success) {
+                setPurchaseOrdersCache(res.pos);
+                setPurchaseOrdersCacheTimestamp(Date.now());
+                setPurchaseOrders(res.pos);
+            }
             return res;
-        }, []);
+        }, [purchaseOrdersCache, purchaseOrdersCacheTimestamp]);
 
-        const fetchFranchiseStock = useCallback(async (silent=false) => {
+        const fetchFranchiseStock = useCallback(async (silent=false, forceRefresh = false) => {
             if (!user?.email) return { success: false, message: 'User not logged in' };
+            
+            // ตรวจสอบ cache
+            if (!forceRefresh && franchiseStockCache && franchiseStockCacheTimestamp) {
+                const now = Date.now();
+                if (now - franchiseStockCacheTimestamp < CACHE_DURATION) {
+                    console.log('Using cached franchise stock');
+                    setFranchiseStock(franchiseStockCache);
+                    return { success: true, products: franchiseStockCache };
+                }
+            }
+            
             if(!silent) Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             try {
                 const res = await callAPI({ action: 'getFranchiseStock', userEmail: user.email });
                 if(!silent) Swal.close();
-                if (res.success) setFranchiseStock(res.products || []);
+                if (res.success) {
+                    setFranchiseStockCache(res.products || []);
+                    setFranchiseStockCacheTimestamp(Date.now());
+                    setFranchiseStock(res.products || []);
+                }
                 return res;
             } catch (error) {
                 if(!silent) Swal.close();
                 return { success: false, message: error.message || 'Unknown error' };
             }
-        }, [user]);
+        }, [user, franchiseStockCache, franchiseStockCacheTimestamp]);
 
         const fetchFranchisePOs = useCallback(async (silent=false) => {
             if (!user?.email) return { success: false, message: 'User not logged in' };
@@ -2606,6 +2691,17 @@
 
                             {page === 'history' && (
                                 <div className="fade-in max-w-3xl mx-auto space-y-3 text-gray-800 font-bold">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="text-xl font-bold text-gray-900">ประวัติการสั่งซื้อ</h2>
+                                        <button 
+                                            onClick={() => fetchHistory(false, true)} 
+                                            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold transition active:scale-95"
+                                            title="รีเฟรชข้อมูล"
+                                        >
+                                            <Icon icon="fa-sync-alt" className="text-gray-700" />
+                                            <span className="text-gray-700">รีเฟรช</span>
+                                        </button>
+                                    </div>
                                     {orders.length === 0 ? <div className="text-center py-20 text-gray-400 bg-white rounded-xl border border-dashed font-normal">ยังไม่มีข้อมูลรายการสั่งซื้อ</div> : orders.map(order => (
                                         <div key={order.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 font-normal">
                                             <div className="flex justify-between items-start mb-3 border-b pb-3 font-bold"><div><h3 className="font-bold text-gray-900 uppercase">{order.id}</h3><p className="text-xs text-gray-400 font-normal">{order.date}</p></div><span className={`px-3 py-1 rounded-full text-[10px] font-bold ${order.status==='รอตรวจสอบ'?'bg-yellow-100 text-yellow-800':'bg-green-100 text-green-800'}`}>{order.status}</span></div>
@@ -3716,7 +3812,7 @@
                                  </div>
                                  <div className="border-2 border-dashed border-gray-300 p-8 rounded-3xl text-center bg-white cursor-pointer hover:border-gray-800 transition-colors group relative shadow-inner font-normal" onClick={()=>document.getElementById('final-slip-input-v23').click()}>
                                     <input id="final-slip-input-v23" type="file" accept="image/*" hidden onChange={(e)=>setSlipFile(e.target.files[0])} />
-                                    {slipFile ? <div className="text-emerald-600 font-bold flex flex-col items-center gap-2 animate-bounce"><Icon icon="fa-check-circle" className="text-3xl font-bold"/><span>แนบหลักฐานแล้ว</span><span className="text-[10px] font-normal text-gray-400 truncate w-40 px-4">{slipFile.name}</span></div> : <div className="text-gray-400 flex flex-col items-center gap-2 group-hover:text-gray-600 font-normal"><Icon icon="fa-cloud-upload-alt" className="text-4xl mb-1"/><span>แตะที่นี่เพื่อแนบสลิปโอนเงิน</span></div>}
+                                    {slipFile ? <div className="text-emerald-600 font-bold flex flex-col items-center gap-2"><Icon icon="fa-check-circle" className="text-3xl font-bold"/><span>แนบหลักฐานแล้ว</span><span className="text-[10px] font-normal text-gray-400 truncate w-40 px-4">{slipFile.name}</span></div> : <div className="text-gray-400 flex flex-col items-center gap-2 group-hover:text-gray-600 font-normal"><Icon icon="fa-cloud-upload-alt" className="text-4xl mb-1"/><span>แตะที่นี่เพื่อแนบสลิปโอนเงิน</span></div>}
                                  </div>
                              </div>
                              <div className="p-5 bg-white border-t pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] shrink-0 font-bold"><button onClick={handlePlaceOrder} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-bold shadow-xl active:scale-95 transition-all hover:bg-black uppercase tracking-widest">ยืนยันการสั่งซื้อ</button></div>
