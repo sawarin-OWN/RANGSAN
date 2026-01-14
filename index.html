@@ -1277,7 +1277,7 @@
                         minStock: 5,
                         franchisePrice: 0
                     });
-                    fetchFranchiseStock();
+                    fetchFranchiseStock(false, true);
                 } else {
                     showError(res?.message || 'เกิดข้อผิดพลาดในการเพิ่มสินค้า');
                 }
@@ -1314,7 +1314,7 @@
 
                 if (res && res.success) {
                     showSuccess('สำเร็จ', res.message || `นำเข้าสินค้า ${res.importedProducts?.length || 0} รายการเรียบร้อย`);
-                    fetchFranchiseStock();
+                    fetchFranchiseStock(false, true);
                     fetchOrdersWithImportStatus(); // รีเฟรชสถานะออเดอร์
                 } else {
                     if (res?.alreadyImported) {
@@ -1389,7 +1389,7 @@
                     showSuccess('สำเร็จ', `อัปเดตสต็อก ${successCount} รายการเรียบร้อย`);
                     setIsBulkEditModalOpen(false);
                     setSelectedProductsForBulkEdit([]); // ล้างการเลือก
-                    fetchFranchiseStock();
+                    fetchFranchiseStock(false, true);
                 } else {
                     showError(res?.message || 'เกิดข้อผิดพลาดในการอัปเดตสต็อก');
                 }
@@ -2951,7 +2951,7 @@
                                             >
                                                 <Icon icon="fa-plus" /> เพิ่มสินค้า
                                             </button>
-                                            <button onClick={() => fetchFranchiseStock()} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition">
+                                            <button onClick={() => fetchFranchiseStock(false, true)} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition">
                                                 <Icon icon="fa-sync" /> Refresh
                                             </button>
                                         </div>
@@ -3043,7 +3043,7 @@
                                                                                     Swal.fire({ title: 'กำลังอัปเดต...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                                                                     callAPI({ action: 'updateFranchiseStock', productId: p.id, newStock: parseInt(res.value), userEmail: user.email }).then(r => {
                                                                                         Swal.close();
-                                                                                        if(r.success) { Toast.fire({icon:'success',title:'สต็อกอัปเดตแล้ว'}); fetchFranchiseStock(); }
+                                                                                        if(r.success) { Toast.fire({icon:'success',title:'สต็อกอัปเดตแล้ว'}); fetchFranchiseStock(false, true); }
                                                                                         else { showError('เกิดข้อผิดพลาดในการอัปเดตสต็อก'); }
                                                                                     }).catch(error => {
                                                                                         Swal.close();
@@ -3078,7 +3078,7 @@
                                                                                             Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                                                                             callAPI({ action: 'franchiseStockIn', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(r => {
                                                                                                 Swal.close();
-                                                                                                if(r.success) { Toast.fire({icon:'success',title:`รับเข้าสต็อก +${res.value} เรียบร้อย`}); fetchFranchiseStock(); }
+                                                                                                if(r.success) { Toast.fire({icon:'success',title:`รับเข้าสต็อก +${res.value} เรียบร้อย`}); fetchFranchiseStock(false, true); }
                                                                                                 else { showError('เกิดข้อผิดพลาด'); }
                                                                                             }).catch(error => {
                                                                                                 Swal.close();
@@ -3115,7 +3115,7 @@
                                                                                             Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                                                                             callAPI({ action: 'franchiseStockOut', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(r => {
                                                                                                 Swal.close();
-                                                                                                if(r.success) { Toast.fire({icon:'success',title:`เบิกออกสต็อก -${res.value} เรียบร้อย`}); fetchFranchiseStock(); }
+                                                                                                if(r.success) { Toast.fire({icon:'success',title:`เบิกออกสต็อก -${res.value} เรียบร้อย`}); fetchFranchiseStock(false, true); }
                                                                                                 else { showError(r.message || 'เกิดข้อผิดพลาด'); }
                                                                                             }).catch(error => {
                                                                                                 Swal.close();
@@ -3144,7 +3144,7 @@
                                                                                     Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                                                                     callAPI({ action: 'updateFranchiseMinStock', productId: p.id, minStock: parseInt(res.value) || 5, userEmail: user.email }).then(r => {
                                                                                         Swal.close();
-                                                                                        if(r.success) { Toast.fire({icon:'success',title:'ตั้ง Min Stock เรียบร้อย'}); fetchFranchiseStock(); }
+                                                                                        if(r.success) { Toast.fire({icon:'success',title:'ตั้ง Min Stock เรียบร้อย'}); fetchFranchiseStock(false, true); }
                                                                                         else { showError('เกิดข้อผิดพลาด'); }
                                                                                     }).catch(error => {
                                                                                         Swal.close();
