@@ -549,8 +549,9 @@
             if(newPage !== 'stock_alert') setStockAlertPage(1);
             
             if(['admin_orders', 'history', 'tax_invoice', 'profile', 'purchase_order', 'stock_alert', 'admin_dashboard', 'franchise_stock', 'franchise_po', 'franchise_stock_log'].includes(newPage)) {
-                Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                 const promises = [];
+                let needsLoading = false;
+                
                 if(newPage === 'admin_orders' || (newPage === 'tax_invoice' && user?.role === 'admin')) {
                     promises.push(fetchAllOrders(true));
                 }
@@ -576,7 +577,20 @@
                     // ดึงข้อมูลออเดอร์ด้วยเพื่อใช้ใน Import From Order
                     promises.push(fetchHistory(true));
                 }
-                Promise.all(promises).then(() => { Swal.close(); setPage(newPage); }).catch(() => { Swal.close(); setPage(newPage); });
+                
+                // ตรวจสอบว่ามี promises หรือไม่ และต้องแสดง loading หรือไม่
+                if (promises.length > 0) {
+                    // ใช้ Promise.allSettled เพื่อรอให้ทุก promise เสร็จ
+                    Promise.allSettled(promises).then(() => { 
+                        // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ถูกจัดการแล้ว
+                        setTimeout(() => {
+                            Swal.close();
+                            setPage(newPage);
+                        }, 50);
+                    });
+                } else {
+                    setPage(newPage);
+                }
             } else { setPage(newPage); }
         };
 
@@ -612,7 +626,10 @@
                       setPage('home'); 
                   }
                }
-               setIsLoading(false);
+               // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ถูกจัดการแล้วก่อนที่จะปิด loading screen
+               setTimeout(() => {
+                   setIsLoading(false);
+               }, 100);
            };
            initApp();
         }, [fetchAllOrders]);
@@ -1023,21 +1040,91 @@
             newItems[idx].qty = newQty;
             setEditingOrder({ ...editingOrder, items: newItems });
         };
+        
+        const updateEditPrice = async (idx, newPrice) => {
+            if (!user || user.role !== 'admin') {
+                showError('เฉพาะแอดมินเท่านั้นที่สามารถแก้ไขราคาได้');
+                return;
+            }
+            
+            const result = await Swal.fire({
+                title: 'แก้ไขราคา',
+                text: `เปลี่ยนราคาจาก ฿${editingOrder.items[idx].price.toLocaleString()} เป็น ฿${Number(newPrice).toLocaleString()}?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: THEME_COLOR
+            });
+            
+            if (result.isConfirmed) {
+                Swal.fire({ title: 'กำลังอัพเดท...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+                try {
+                    const res = await callAPI({ 
+                        action: 'updateOrderItemPrice', 
+                        orderId: editingOrder.id, 
+                        itemIndex: idx, 
+                        newPrice: Number(newPrice),
+                        userEmail: user.email
+                    });
+                    Swal.close();
+                    if (res.success) {
+                        // อัพเดทราคาใน state
+                        const newItems = [...editingOrder.items];
+                        newItems[idx].price = Number(newPrice);
+                        setEditingOrder({ ...editingOrder, items: newItems, total: res.newTotal });
+                        Toast.fire({ icon: 'success', title: 'อัพเดทราคาเรียบร้อย' });
+                    } else {
+                        showError(res.message || 'เกิดข้อผิดพลาดในการอัพเดทราคา');
+                    }
+                } catch (error) {
+                    Swal.close();
+                    showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
+                }
+            }
+        };
         const saveEditOrder = async () => {
              let msg = 'ยืนยันการแก้ไข?';
              if (editingOrderDiff > 0) msg = `ยอดเงินเพิ่มขึ้น ${editingOrderDiff.toLocaleString()} บาท (ต้องเก็บเพิ่ม)`;
              else if (editingOrderDiff < 0) msg = `ยอดเงินลดลง ${Math.abs(editingOrderDiff).toLocaleString()} บาท (ต้องคืนเงิน)`;
              Swal.fire({title:'บันทึกการแก้ไข', text: msg, showCancelButton:true, confirmButtonText:'ยืนยัน', confirmButtonColor: THEME_COLOR}).then(async (r)=>{
                  if(r.isConfirmed) {
-                    Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                     try {
                         const res = await callAPI({ action: 'editOrder', orderId: editingOrder.id, newItems: editingOrder.items, userEmail: user.email });
-                        Swal.close();
                         if (res.success) { 
-                            showSuccess('แก้ไขสำเร็จ', 'อัปเดตข้อมูลแล้ว'); 
-                            setIsEditModalOpen(false); 
-                            fetchAllOrders(true); 
+                            // อัพเดท popup เป็น success
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'ทำรายการเสร็จแล้ว',
+                                text: 'อัปเดตข้อมูลแล้ว',
+                                confirmButtonText: 'เสร็จสิ้น',
+                                allowOutsideClick: false
+                            }).then(async (result) => {
+                                if (result.isConfirmed) {
+                                    setIsEditModalOpen(false);
+                                    
+                                    // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                                    Swal.fire({
+                                        title: 'กำลังอัพเดทข้อมูล...',
+                                        text: 'กรุณารอสักครู่',
+                                        allowOutsideClick: false,
+                                        didOpen: () => Swal.showLoading()
+                                    });
+                                    
+                                    // เรียก fetchAllOrders ใน silent mode
+                                    await fetchAllOrders(true, true);
+                                    
+                                    // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ยังอยู่ใน DOM ก่อนที่จะปิด
+                                    // และให้ React re-render ก่อนที่จะปิด Swal
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                    
+                                    // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
+                                    Swal.close();
+                                }
+                            });
                         } else { 
+                            Swal.close();
                             showError(res.message); 
                         }
                     } catch (error) {
@@ -1049,10 +1136,39 @@
         };
 
         const updateOrderStatusFn = async (orderId, status, tracking = '') => {
-            Swal.fire({ title: 'กำลังบันทึก...', didOpen: () => Swal.showLoading() });
+            Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             const res = await callAPI({ action: 'updateOrderStatus', orderId, status, tracking });
-            if (res.success) { Swal.fire('สำเร็จ', `อัปเดตเป็น ${status} แล้ว`, 'success'); fetchAllOrders(true); } 
-            else { showError('เกิดข้อผิดพลาด'); }
+            if (res.success) { 
+                // อัพเดท popup เดิมเป็น success (ไม่ปิดและเปิดใหม่)
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ทำรายการเสร็จแล้ว',
+                    text: `อัปเดตเป็น ${status} แล้ว`,
+                    confirmButtonText: 'เสร็จสิ้น',
+                    allowOutsideClick: false
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        // หลังจากผู้ใช้กดเสร็จสิ้น ให้ refresh ข้อมูลใน silent mode (ไม่แสดง loading popup)
+                        // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                        Swal.fire({
+                            title: 'กำลังอัพเดทข้อมูล...',
+                            text: 'กรุณารอสักครู่',
+                            allowOutsideClick: false,
+                            didOpen: () => Swal.showLoading()
+                        });
+                        
+                        // เรียก fetchAllOrders ใน silent mode
+                        await fetchAllOrders(true, true); // silent=true, forceRefresh=true
+                        
+                        // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
+                        Swal.close();
+                    }
+                });
+            } 
+            else { 
+                Swal.close();
+                showError('เกิดข้อผิดพลาด'); 
+            }
         };
 
         const handleShipOrder = (orderId) => { Swal.fire({ title: 'แจ้งเลขพัสดุ', input: 'text', showCancelButton: true, confirmButtonColor: THEME_COLOR }).then((res) => { if (res.isConfirmed) updateOrderStatusFn(orderId, 'จัดส่งแล้ว', res.value); }); };
@@ -1092,7 +1208,8 @@
 
             try {
                 Swal.fire({ 
-                    title: `กำลังส่งสินค้า ${ordersToShip.length} รายการ...`, 
+                    title: 'กำลังทำรายการ...',
+                    text: `กำลังส่งสินค้า ${ordersToShip.length} รายการ...`, 
                     allowOutsideClick: false, 
                     didOpen: () => Swal.showLoading() 
                 });
@@ -1109,18 +1226,61 @@
                 const results = await Promise.all(promises);
                 const successCount = results.filter(r => r.success).length;
                 const failCount = results.length - successCount;
-
-                Swal.close();
                 
                 if (failCount === 0) {
-                    showSuccess('สำเร็จ', `ส่งสินค้า ${successCount} รายการเรียบร้อย`);
-                    setSelectedOrdersForShipping([]);
-                    setTrackingNumbers({});
-                    setIsBulkShippingModalOpen(false);
-                    fetchAllOrders(true);
+                    // อัพเดท popup เป็น success
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'ทำรายการเสร็จแล้ว',
+                        text: `ส่งสินค้า ${successCount} รายการเรียบร้อย`,
+                        confirmButtonText: 'เสร็จสิ้น',
+                        allowOutsideClick: false
+                    }).then(async (result) => {
+                        if (result.isConfirmed) {
+                            setSelectedOrdersForShipping([]);
+                            setTrackingNumbers({});
+                            setIsBulkShippingModalOpen(false);
+                            
+                            // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                            Swal.fire({
+                                title: 'กำลังอัพเดทข้อมูล...',
+                                text: 'กรุณารอสักครู่',
+                                allowOutsideClick: false,
+                                didOpen: () => Swal.showLoading()
+                            });
+                            
+                            // เรียก fetchAllOrders ใน silent mode
+                            await fetchAllOrders(true, true);
+                            
+                            // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
+                            Swal.close();
+                        }
+                    });
                 } else {
-                    showError(`ส่งสำเร็จ ${successCount} รายการ, ล้มเหลว ${failCount} รายการ`);
-                    fetchAllOrders(true);
+                    // อัพเดท popup เป็น error
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'เกิดข้อผิดพลาด',
+                        text: `ส่งสำเร็จ ${successCount} รายการ, ล้มเหลว ${failCount} รายการ`,
+                        confirmButtonText: 'เสร็จสิ้น',
+                        allowOutsideClick: false
+                    }).then(async (result) => {
+                        if (result.isConfirmed) {
+                            // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                            Swal.fire({
+                                title: 'กำลังอัพเดทข้อมูล...',
+                                text: 'กรุณารอสักครู่',
+                                allowOutsideClick: false,
+                                didOpen: () => Swal.showLoading()
+                            });
+                            
+                            // เรียก fetchAllOrders ใน silent mode
+                            await fetchAllOrders(true, true);
+                            
+                            // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
+                            Swal.close();
+                        }
+                    });
                 }
             } catch (error) {
                 Swal.close();
@@ -1871,15 +2031,36 @@
             reader.onload = async function () { 
                 const orderData = { id: `ORD-${Date.now().toString().slice(-6)}`, user: user.email, items: cart, total: calculateNetTotal(), address: user.address, discountCode: appliedCoupon, discountAmount: discountAmount }; 
                 const res = await callAPI({ action: 'placeOrder', orderData, slipBase64: reader.result }); 
-                Swal.close();
                 if(res.success) { 
-                    setCart([]); setSlipFile(null); setAppliedCoupon(null); setIsCheckoutOpen(false); 
-                    showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ'); 
-                    // ** FIX 2: Refresh stock automatically after order **
-                    await fetchProducts(); 
-                    changePage('history'); 
+                    // อัพเดท state ก่อน
+                    setCart([]); 
+                    setSlipFile(null); 
+                    setAppliedCoupon(null); 
+                    setIsCheckoutOpen(false);
+                    
+                    // อัพเดทข้อความใน popup เดิม (ไม่ปิดและเปิดใหม่)
+                    Swal.update({
+                        title: 'กำลังทำรายการ...',
+                        text: 'กำลังโหลดข้อมูล...'
+                    });
+                    
+                    // Refresh stock และ fetch history (silent mode เพื่อไม่แสดง popup ใหม่)
+                    await Promise.all([
+                        fetchProducts(true), // force refresh (ไม่มี silent parameter)
+                        fetchHistory(true, true) // silent mode + force refresh
+                    ]);
+                    
+                    // ปิด popup และแสดง success
+                    Swal.close();
+                    showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ');
+                    
+                    // เปลี่ยนหน้าโดยตรง (ไม่ใช้ changePage เพื่อไม่แสดง loading popup ใหม่)
+                    setPage('history');
                 } 
-                else { showError(res.message); } 
+                else { 
+                    Swal.close();
+                    showError(res.message); 
+                } 
             }; 
         };
 
@@ -1934,9 +2115,39 @@
              try {
                  // ตรวจสอบว่าเป็น admin หรือลูกค้า
                  const isAdmin = user && user.role === 'admin';
+                 
+                 // ตรวจสอบเงื่อนไข 7 วัน (สำหรับลูกค้าเท่านั้น)
+                 if (!isAdmin) {
+                     const eligibilityCheck = await callAPI({ 
+                         action: 'checkTaxInvoiceEligibility', 
+                         orderId: order.id, 
+                         userEmail: user?.email 
+                     });
+                     
+                     if (!eligibilityCheck.success || !eligibilityCheck.eligible) {
+                         Swal.close();
+                         showError(eligibilityCheck.message || 'ไม่สามารถออกใบกำกับภาษีได้');
+                         return;
+                     }
+                 }
+                 
+                 // ตรวจสอบจำนวนครั้งที่พิมพ์ (จำกัด 3 ครั้งสำหรับลูกค้า)
+                 const printCount = await callAPI({ 
+                     action: 'getTaxInvoicePrintCount', 
+                     orderId: order.id, 
+                     userEmail: user?.email, 
+                     isAdmin: isAdmin 
+                 });
+                 
+                 if (!isAdmin && printCount.success && printCount.count >= 3) {
+                     Swal.close();
+                     showError('คุณได้พิมพ์ใบกำกับภาษีครบ 3 ครั้งแล้ว กรุณาติดต่อแอดมินเพื่อพิมพ์เพิ่มเติม');
+                     return;
+                 }
 
                  // Priority 1: สำหรับลูกค้า (non-admin) ใช้ข้อมูลจาก Local State ก่อนเสมอ
                  // เพราะลูกค้าจะเห็นเฉพาะ order ของตัวเองอยู่แล้ว
+                 // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ ไม่ใช่ที่อยู่จัดส่ง (address)
                  if (!isAdmin && user) {
                     // 1.1 ใช้ taxForm state ก่อน (ค่าล่าสุดที่ผู้ใช้กรอกแต่ยังไม่ได้บันทึก)
                     // ตรวจสอบว่ามีค่าจริงๆ และไม่ใช่ empty string
@@ -1946,6 +2157,7 @@
                     if (taxForm && taxForm.taxId && String(taxForm.taxId).trim() !== "") {
                         taxId = String(taxForm.taxId).trim();
                     }
+                    // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ
                     if (taxForm && taxForm.taxAddr && String(taxForm.taxAddr).trim() !== "") {
                         taxAddrStr = String(taxForm.taxAddr).trim();
                     }
@@ -1957,6 +2169,7 @@
                     if (!taxId || taxId === "") {
                         taxId = (user.taxId && String(user.taxId).trim() !== "") ? String(user.taxId).trim() : "";
                     }
+                    // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ ไม่ใช่ที่อยู่จัดส่ง (address)
                     if (!taxAddrStr || taxAddrStr === "") {
                         taxAddrStr = (user.taxAddr && String(user.taxAddr).trim() !== "") ? String(user.taxAddr).trim() : "";
                     }
@@ -1976,6 +2189,7 @@
                  });
                  
                  // สำหรับลูกค้า: ถ้ามีข้อมูลใน Local State แล้ว ไม่ต้องเรียก API
+                 // แต่สำหรับ admin หรือเมื่อ Local State ไม่มีค่า ให้ดึงจาก Server
                  if (!hasLocalTaxData || isAdmin) {
                  try {
                         // เพิ่ม timeout สำหรับ API call (10 วินาที)
@@ -1989,14 +2203,18 @@
                         if (res && res.success && res.user) {
                              // ใช้ข้อมูลจาก Server เฉพาะเมื่อ Local State ไม่มีค่า หรือเป็น admin
                              // และต้องตรวจสอบว่า Server ส่งค่ามาจริงๆ (ไม่ใช่ empty string)
+                             // สำหรับที่อยู่: ใช้ข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ
                              if (!taxName || taxName === "") {
                                  taxName = (res.user.taxName && String(res.user.taxName).trim() !== "") ? String(res.user.taxName).trim() : taxName;
                              }
                              if (!taxId || taxId === "") {
                                  taxId = (res.user.taxId && String(res.user.taxId).trim() !== "") ? String(res.user.taxId).trim() : taxId;
                              }
-                             if (!taxAddrStr || taxAddrStr === "") {
-                                 taxAddrStr = (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") ? String(res.user.taxAddr).trim() : taxAddrStr;
+                             // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ ไม่ใช่ที่อยู่จัดส่ง (address)
+                             if (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") {
+                                 taxAddrStr = String(res.user.taxAddr).trim();
+                             } else if (!taxAddrStr || taxAddrStr === "") {
+                                 taxAddrStr = (res.user.address && String(res.user.address).trim() !== "") ? String(res.user.address).trim() : taxAddrStr;
                              }
                              console.log('Tax Invoice - Data from Server:', { taxName, taxId, taxAddrStr });
                     }
@@ -2058,28 +2276,36 @@
              const grandTotal = subtotal - discVal + shipping;
              const vat = grandTotal * 7 / 107; const preVat = grandTotal - vat;
 
-             // ** FIX: Use || '-' for every field to prevent "undefined" **
-             // แปลงวันที่จาก order.date (รูปแบบ Thai date string) เป็น Date object
-             // order.date อาจเป็นรูปแบบ "9/1/2569" หรือ "09/01/2569" หรือ format อื่น
+             // ดึงวันที่อนุมัติออเดอร์ (วันที่ที่ status เป็น "ชำระเงินแล้ว")
              let orderDateObj = new Date();
-             if (order.date) {
-                 try {
-                     // พยายามแปลงวันที่จากรูปแบบไทย (dd/mm/yyyy) หรือรูปแบบอื่น
-                     const dateStr = order.date.toString().trim();
-                     // ถ้าเป็นรูปแบบ "9/1/2569" หรือ "09/01/2569"
-                     const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                     if (dateMatch) {
-                         const day = parseInt(dateMatch[1]);
-                         const month = parseInt(dateMatch[2]) - 1; // month is 0-indexed
-                         const year = parseInt(dateMatch[3]);
-                         // แปลงปี BE เป็น CE (2569 -> 2026)
-                         const ceYear = year - 543;
-                         orderDateObj = new Date(ceYear, month, day);
+             try {
+                 const eligibilityCheck = await callAPI({ 
+                     action: 'checkTaxInvoiceEligibility', 
+                     orderId: order.id, 
+                     userEmail: user?.email 
+                 });
+                 
+                 if (eligibilityCheck.success && eligibilityCheck.approvalDate) {
+                     orderDateObj = new Date(eligibilityCheck.approvalDate);
+                 } else if (order.date) {
+                     // Fallback: ใช้ order.date ถ้าไม่มี approvalDate
+                     try {
+                         const dateStr = order.date.toString().trim();
+                         const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                         if (dateMatch) {
+                             const day = parseInt(dateMatch[1]);
+                             const month = parseInt(dateMatch[2]) - 1;
+                             const year = parseInt(dateMatch[3]);
+                             const ceYear = year - 543;
+                             orderDateObj = new Date(ceYear, month, day);
+                         }
+                     } catch(e) {
+                         orderDateObj = new Date();
                      }
-                 } catch(e) {
-                     // ถ้าแปลงไม่ได้ให้ใช้วันที่ปัจจุบัน
-                     orderDateObj = new Date();
                  }
+             } catch(e) {
+                 console.error('Error getting approval date:', e);
+                 orderDateObj = new Date();
              }
              const orderDateStr = orderDateObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
              
@@ -2088,7 +2314,40 @@
                 <div class="box" style="background-color:#f9fafb;"><h3 style="margin:0 0 10px 0; font-size:12pt; font-weight:bold; color:#047857; border-bottom:1px solid #eee; padding-bottom:5px;">ลูกค้า (Customer)</h3><div><div style="font-weight:bold; margin-bottom:3px;">${taxName || '-'}</div><div style="margin-bottom:3px;">${taxAddrStr || '-'}</div><div><strong>เลขประจำตัวผู้เสียภาษี:</strong> ${taxId || '-'}</div></div></div>
                 <table style="width:100%; border:1px solid #ddd;"><thead><tr><th style="width:5%;text-align:center">#</th><th style="width:40%">รายการ</th><th style="width:10%;text-align:center">จำนวน</th><th style="width:20%;text-align:right">ราคา/หน่วย</th><th style="width:20%;text-align:right">จำนวนเงิน</th></tr></thead><tbody>${itemsHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;font-weight:bold">รวมเงิน</td><td style="text-align:right">${subtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>${discVal > 0 ? `<tr><td colspan="4" style="text-align:right;color:#dc2626">ส่วนลด</td><td style="text-align:right;color:#dc2626">-${discVal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}<tr><td colspan="4" style="text-align:right">ค่าขนส่ง</td><td style="text-align:right">${shipping.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr><td colspan="4" style="text-align:right">มูลค่าก่อนภาษี</td><td style="text-align:right">${preVat.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr><td colspan="4" style="text-align:right">ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${vat.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr><tr style="background-color:#047857 !important; color:white !important; font-weight:bold; font-size:14pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;"><td colspan="4" style="text-align:right; padding:10px;">ยอดสุทธิ</td><td style="text-align:right; padding:10px;">${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})} บาท</td></tr></tfoot></table>
                 <div style="margin-top:60px; display:flex; justify-content:flex-end; text-align:center; font-size:11pt;"><div style="width:250px; position:relative;"><img src="${SHOP_INFO.signature}" style="position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:120px; opacity:0.8;" /><div style="border-bottom:1px solid #ccc; height:30px; margin-bottom:5px;"></div>ผู้มีอำนาจลงนาม (Authorized Signature)<br>ในนาม บริษัท ไชยจันลา จำกัด</div></div>
+                <div style="margin-top:40px; padding-top:20px; border-top:1px solid #ddd; text-align:center; font-size:10pt; color:#666;">
+                    <p style="margin:5px 0;">ใบเสร็จรับเงิน / ใบกำกับภาษีอิเล็กทรอนิกส์</p>
+                    <p style="margin:5px 0;">(Electronic Receipt / Tax Invoice)</p>
+                </div>
              </body></html>`;
+             
+             // บันทึกการออกใบกำกับภาษี
+             try {
+                 const eligibilityCheck = await callAPI({ 
+                     action: 'checkTaxInvoiceEligibility', 
+                     orderId: order.id, 
+                     userEmail: user?.email 
+                 });
+                 
+                 const invoiceData = {
+                     userEmail: order.user,
+                     invoiceDate: eligibilityCheck.approvalDate || orderDateObj,
+                     taxName: taxName,
+                     taxId: taxId,
+                     taxAddress: taxAddrStr
+                 };
+                 
+                 await callAPI({ 
+                     action: 'recordTaxInvoice', 
+                     orderId: order.id, 
+                     invoiceData: invoiceData,
+                     userEmail: user?.email,
+                     isAdmin: isAdmin
+                 });
+             } catch(e) {
+                 console.error('Error recording tax invoice:', e);
+                 // ไม่ block การพิมพ์ถ้าบันทึกไม่สำเร็จ
+             }
+             
              openPrintWindow(content);
         };
 
@@ -2809,7 +3068,7 @@
                                                 <Icon icon="fa-truck" /> ส่งสินค้า ({selectedOrdersForShipping.length})
                                             </button>
                                         )}
-                                        <button onClick={() => fetchAllOrders()} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition"><Icon icon="fa-sync" /> Refresh</button>
+                                        <button onClick={() => fetchAllOrders(false, true)} className="text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded hover:bg-blue-100 transition"><Icon icon="fa-sync" /> Refresh</button>
                                     </div>
                                 </div>
                                 {filteredAdminOrders.map(order => {
@@ -2889,6 +3148,52 @@
                                         <div key={order.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 font-normal">
                                             <div className="flex justify-between items-start mb-3 border-b pb-3 font-bold"><div><h3 className="font-bold text-gray-900 uppercase">{order.id}</h3><p className="text-xs text-gray-400 font-normal">{order.date}</p></div><span className={`px-3 py-1 rounded-full text-[10px] font-bold ${order.status==='รอตรวจสอบ'?'bg-yellow-100 text-yellow-800':'bg-green-100 text-green-800'}`}>{order.status}</span></div>
                                             <div className="space-y-1.5 mb-3 font-normal">{order.items.map((it, idx) => <div key={idx} className="flex justify-between text-xs text-gray-600 font-normal"><span>{it.name} x{it.qty}</span><span className="font-medium text-gray-800 font-bold">฿{(it.price*it.qty).toLocaleString()}</span></div>)}</div>
+                                            {order.status === 'จัดส่งแล้ว' && order.tracking && (
+                                                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                    <div className="flex items-center gap-2 text-sm">
+                                                        <Icon icon="fa-truck" className="text-blue-600" />
+                                                        <span className="font-bold text-blue-900">เลขที่พัสดุ:</span>
+                                                        <span 
+                                                            className="font-bold text-blue-700 cursor-pointer hover:text-blue-900 hover:underline transition"
+                                                            onClick={async () => {
+                                                                try {
+                                                                    await navigator.clipboard.writeText(order.tracking);
+                                                                    Toast.fire({
+                                                                        icon: 'success',
+                                                                        title: 'คัดลอกเลขที่พัสดุแล้ว',
+                                                                        timer: 2000,
+                                                                        showConfirmButton: false
+                                                                    });
+                                                                } catch (err) {
+                                                                    // Fallback สำหรับเบราว์เซอร์ที่ไม่มี clipboard API
+                                                                    const textArea = document.createElement('textarea');
+                                                                    textArea.value = order.tracking;
+                                                                    textArea.style.position = 'fixed';
+                                                                    textArea.style.opacity = '0';
+                                                                    document.body.appendChild(textArea);
+                                                                    textArea.select();
+                                                                    try {
+                                                                        document.execCommand('copy');
+                                                                        Toast.fire({
+                                                                            icon: 'success',
+                                                                            title: 'คัดลอกเลขที่พัสดุแล้ว',
+                                                                            timer: 2000,
+                                                                            showConfirmButton: false
+                                                                        });
+                                                                    } catch (err2) {
+                                                                        showError('ไม่สามารถคัดลอกได้');
+                                                                    }
+                                                                    document.body.removeChild(textArea);
+                                                                }
+                                                            }}
+                                                            title="คลิกเพื่อคัดลอกเลขที่พัสดุ"
+                                                        >
+                                                            {order.tracking}
+                                                        </span>
+                                                        <Icon icon="fa-copy" className="text-blue-500 text-xs" />
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between font-bold text-base pt-2 border-t border-dashed"><span>ยอดสุทธิ</span><span className="text-emerald-700 font-bold text-lg">฿{Number(order.total).toLocaleString()}</span></div>
                                         </div>
                                     ))}
@@ -3040,11 +3345,33 @@
                                                                                 confirmButtonColor: THEME_COLOR 
                                                                             }).then((res) => { 
                                                                                 if (res.isConfirmed) {
-                                                                                    Swal.fire({ title: 'กำลังอัปเดต...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                                                                    callAPI({ action: 'updateFranchiseStock', productId: p.id, newStock: parseInt(res.value), userEmail: user.email }).then(r => {
-                                                                                        Swal.close();
-                                                                                        if(r.success) { Toast.fire({icon:'success',title:'สต็อกอัปเดตแล้ว'}); fetchFranchiseStock(false, true); }
-                                                                                        else { showError('เกิดข้อผิดพลาดในการอัปเดตสต็อก'); }
+                                                                                    Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                                                                    callAPI({ action: 'updateFranchiseStock', productId: p.id, newStock: parseInt(res.value), userEmail: user.email }).then(async r => {
+                                                                                        if(r.success) { 
+                                                                                            Swal.fire({
+                                                                                                icon: 'success',
+                                                                                                title: 'ทำรายการเสร็จแล้ว',
+                                                                                                text: 'สต็อกอัปเดตแล้ว',
+                                                                                                confirmButtonText: 'เสร็จสิ้น',
+                                                                                                allowOutsideClick: false
+                                                                                            }).then(async (result) => {
+                                                                                                if (result.isConfirmed) {
+                                                                                                    Swal.update({
+                                                                                                        title: 'กำลังอัพเดทข้อมูล...',
+                                                                                                        text: 'กรุณารอสักครู่',
+                                                                                                        icon: null,
+                                                                                                        showConfirmButton: false,
+                                                                                                        allowOutsideClick: false
+                                                                                                    });
+                                                                                                    Swal.showLoading();
+                                                                                                    await fetchFranchiseStock(true, true);
+                                                                                                    Swal.close();
+                                                                                                }
+                                                                                            });
+                                                                                        } else { 
+                                                                                            Swal.close();
+                                                                                            showError('เกิดข้อผิดพลาดในการอัปเดตสต็อก'); 
+                                                                                        }
                                                                                     }).catch(error => {
                                                                                         Swal.close();
                                                                                         showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
@@ -3075,11 +3402,33 @@
                                                                                         confirmButtonColor: THEME_COLOR 
                                                                                     }).then((noteRes) => {
                                                                                         if (noteRes.isConfirmed) {
-                                                                                            Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                                                                            callAPI({ action: 'franchiseStockIn', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(r => {
-                                                                                                Swal.close();
-                                                                                                if(r.success) { Toast.fire({icon:'success',title:`รับเข้าสต็อก +${res.value} เรียบร้อย`}); fetchFranchiseStock(false, true); }
-                                                                                                else { showError('เกิดข้อผิดพลาด'); }
+                                                                                            Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                                                                            callAPI({ action: 'franchiseStockIn', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(async r => {
+                                                                                                if(r.success) { 
+                                                                                                    Swal.fire({
+                                                                                                        icon: 'success',
+                                                                                                        title: 'ทำรายการเสร็จแล้ว',
+                                                                                                        text: `รับเข้าสต็อก +${res.value} เรียบร้อย`,
+                                                                                                        confirmButtonText: 'เสร็จสิ้น',
+                                                                                                        allowOutsideClick: false
+                                                                                                    }).then(async (result) => {
+                                                                                                        if (result.isConfirmed) {
+                                                                                                            Swal.update({
+                                                                                                                title: 'กำลังอัพเดทข้อมูล...',
+                                                                                                                text: 'กรุณารอสักครู่',
+                                                                                                                icon: null,
+                                                                                                                showConfirmButton: false,
+                                                                                                                allowOutsideClick: false
+                                                                                                            });
+                                                                                                            Swal.showLoading();
+                                                                                                            await fetchFranchiseStock(true, true);
+                                                                                                            Swal.close();
+                                                                                                        }
+                                                                                                    });
+                                                                                                } else { 
+                                                                                                    Swal.close();
+                                                                                                    showError('เกิดข้อผิดพลาด'); 
+                                                                                                }
                                                                                             }).catch(error => {
                                                                                                 Swal.close();
                                                                                                 showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
@@ -3112,11 +3461,33 @@
                                                                                         confirmButtonColor: THEME_COLOR 
                                                                                     }).then((noteRes) => {
                                                                                         if (noteRes.isConfirmed) {
-                                                                                            Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                                                                            callAPI({ action: 'franchiseStockOut', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(r => {
-                                                                                                Swal.close();
-                                                                                                if(r.success) { Toast.fire({icon:'success',title:`เบิกออกสต็อก -${res.value} เรียบร้อย`}); fetchFranchiseStock(false, true); }
-                                                                                                else { showError(r.message || 'เกิดข้อผิดพลาด'); }
+                                                                                            Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                                                                            callAPI({ action: 'franchiseStockOut', productId: p.id, qty: parseInt(res.value), note: noteRes.value || '', userEmail: user.email }).then(async r => {
+                                                                                                if(r.success) { 
+                                                                                                    Swal.fire({
+                                                                                                        icon: 'success',
+                                                                                                        title: 'ทำรายการเสร็จแล้ว',
+                                                                                                        text: `เบิกออกสต็อก -${res.value} เรียบร้อย`,
+                                                                                                        confirmButtonText: 'เสร็จสิ้น',
+                                                                                                        allowOutsideClick: false
+                                                                                                    }).then(async (result) => {
+                                                                                                        if (result.isConfirmed) {
+                                                                                                            Swal.update({
+                                                                                                                title: 'กำลังอัพเดทข้อมูล...',
+                                                                                                                text: 'กรุณารอสักครู่',
+                                                                                                                icon: null,
+                                                                                                                showConfirmButton: false,
+                                                                                                                allowOutsideClick: false
+                                                                                                            });
+                                                                                                            Swal.showLoading();
+                                                                                                            await fetchFranchiseStock(true, true);
+                                                                                                            Swal.close();
+                                                                                                        }
+                                                                                                    });
+                                                                                                } else { 
+                                                                                                    Swal.close();
+                                                                                                    showError(r.message || 'เกิดข้อผิดพลาด'); 
+                                                                                                }
                                                                                             }).catch(error => {
                                                                                                 Swal.close();
                                                                                                 showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
@@ -3141,11 +3512,33 @@
                                                                                 confirmButtonColor: THEME_COLOR 
                                                                             }).then((res) => { 
                                                                                 if (res.isConfirmed) {
-                                                                                    Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                                                                    callAPI({ action: 'updateFranchiseMinStock', productId: p.id, minStock: parseInt(res.value) || 5, userEmail: user.email }).then(r => {
-                                                                                        Swal.close();
-                                                                                        if(r.success) { Toast.fire({icon:'success',title:'ตั้ง Min Stock เรียบร้อย'}); fetchFranchiseStock(false, true); }
-                                                                                        else { showError('เกิดข้อผิดพลาด'); }
+                                                                                    Swal.fire({ title: 'กำลังทำรายการ...', text: 'กรุณารอสักครู่', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                                                                    callAPI({ action: 'updateFranchiseMinStock', productId: p.id, minStock: parseInt(res.value) || 5, userEmail: user.email }).then(async r => {
+                                                                                        if(r.success) { 
+                                                                                            Swal.fire({
+                                                                                                icon: 'success',
+                                                                                                title: 'ทำรายการเสร็จแล้ว',
+                                                                                                text: 'ตั้ง Min Stock เรียบร้อย',
+                                                                                                confirmButtonText: 'เสร็จสิ้น',
+                                                                                                allowOutsideClick: false
+                                                                                            }).then(async (result) => {
+                                                                                                if (result.isConfirmed) {
+                                                                                                    Swal.update({
+                                                                                                        title: 'กำลังอัพเดทข้อมูล...',
+                                                                                                        text: 'กรุณารอสักครู่',
+                                                                                                        icon: null,
+                                                                                                        showConfirmButton: false,
+                                                                                                        allowOutsideClick: false
+                                                                                                    });
+                                                                                                    Swal.showLoading();
+                                                                                                    await fetchFranchiseStock(true, true);
+                                                                                                    Swal.close();
+                                                                                                }
+                                                                                            });
+                                                                                        } else { 
+                                                                                            Swal.close();
+                                                                                            showError('เกิดข้อผิดพลาด'); 
+                                                                                        }
                                                                                     }).catch(error => {
                                                                                         Swal.close();
                                                                                         showError('เกิดข้อผิดพลาด: ' + (error.message || 'Unknown error'));
@@ -4044,9 +4437,41 @@
                             </div>
                             <div className="p-4 overflow-y-auto flex-1 bg-gray-50 font-normal">
                                 {editingOrder.items.map((item, idx) => (
-                                    <div key={idx} className="bg-white p-4 rounded-xl shadow-sm mb-3 flex justify-between items-center border border-gray-100 font-normal">
-                                        <div><div className="font-bold text-sm text-gray-800 font-bold">{item.name}</div><div className="text-xs text-gray-400">฿{item.price}</div></div>
-                                        <div className="flex items-center gap-2">
+                                    <div key={idx} className="bg-white p-4 rounded-xl shadow-sm mb-3 border border-gray-100 font-normal">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex-1">
+                                                <div className="font-bold text-sm text-gray-800 font-bold">{item.name}</div>
+                                                {user?.role === 'admin' && (
+                                                    <div className="mt-2 flex items-center gap-2">
+                                                        <span className="text-xs text-gray-500">ราคา:</span>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={item.price}
+                                                            onChange={(e) => {
+                                                                const newItems = [...editingOrder.items];
+                                                                newItems[idx].price = Number(e.target.value) || 0;
+                                                                setEditingOrder({ ...editingOrder, items: newItems });
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                const newPrice = Number(e.target.value) || 0;
+                                                                if (newPrice !== item.price && newPrice >= 0) {
+                                                                    updateEditPrice(idx, newPrice);
+                                                                }
+                                                            }}
+                                                            className="w-24 text-sm text-center font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                            style={{ WebkitAppearance: 'textfield', MozAppearance: 'textfield' }}
+                                                        />
+                                                        <span className="text-xs text-gray-500">บาท</span>
+                                                    </div>
+                                                )}
+                                                {user?.role !== 'admin' && (
+                                                    <div className="text-xs text-gray-400 mt-1">฿{item.price.toLocaleString()}</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-end gap-2">
                                             <button onClick={() => updateEditQty(idx, -1)} className="w-8 h-8 bg-gray-100 rounded-lg text-gray-500 font-bold hover:bg-red-50 hover:text-red-600 transition font-bold">-</button>
                                             <input
                                                 type="number"
