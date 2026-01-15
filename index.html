@@ -144,7 +144,7 @@
       
       // --- Constants ---
       // ** Updated API URL (Latest 25/12/2025) **
-      const API_URL = "https://script.google.com/macros/s/AKfycby7EinppRuBLYdPDcSo1VyP1adWFsWrwoXKEYyjmIuNh0mqv97uTqS-q5vyY-CL0XYr/exec"; 
+      const API_URL = "https://script.google.com/macros/s/AKfycbyvudny9pXzlt4NKSx8IWe-soNGihi-Q3YObt9sD_2Qw1Bh3JCuBf3EakfHUn-2jhFv/exec"; 
       const THEME_COLOR = '#1f2937';
       const LOGO_URL = "https://storage.googleapis.com/glide-prod.appspot.com/uploads-v2/ZPQ1QSrzcL0RxpekC12M/pub/1RU9DQXtscl4zSttoqYd.jpg";
       
@@ -221,7 +221,8 @@
         const [orders, setOrders] = useState([]); 
         const [allOrders, setAllOrders] = useState([]); 
         const [purchaseOrders, setPurchaseOrders] = useState([]);
-        const [isLoading, setIsLoading] = useState(true);
+        const [isLoading, setIsLoading] = useState(false);
+        const [isInitialLoading, setIsInitialLoading] = useState(true);
         
         // Frontend Caching (Phase 1)
         const [productsCache, setProductsCache] = useState(null);
@@ -305,7 +306,7 @@
         const [showPassword, setShowPassword] = useState(false);
 
         const [searchTerm, setSearchTerm] = useState('');
-        const [stockSearchTerm, setStockSearchTerm] = useState('');
+        const [stockSearchTerm, setStockSearchTerm] = useState(''); 
         const [searchResults, setSearchResults] = useState([]);
         const [isSearching, setIsSearching] = useState(false);
         const [searchTimeout, setSearchTimeout] = useState(null);
@@ -339,6 +340,23 @@
 
         const [profileForm, setProfileForm] = useState({ username: '', phone: '', address: '' });
         const [taxForm, setTaxForm] = useState({ taxName: '', taxId: '', taxAddr: '' });
+        
+        // Tax Invoice Modal state (for admin)
+        const [isTaxInvoiceModalOpen, setIsTaxInvoiceModalOpen] = useState(false);
+        const [editingOrderForTax, setEditingOrderForTax] = useState(null);
+        const [taxInvoiceForm, setTaxInvoiceForm] = useState({
+            taxName: '',
+            taxId: '',
+            taxAddress: '',
+            items: [],
+            subtotal: 0,
+            discount: 0,
+            shipping: 0,
+            total: 0,
+            vat: 0,
+            preVat: 0
+        });
+        const [taxInvoiceRecordedStatus, setTaxInvoiceRecordedStatus] = useState({}); // { orderId: { recorded: boolean, data: {...} } }
 
         const showError = (text) => Swal.fire({ icon: 'error', title: 'แจ้งเตือน', text, confirmButtonColor: '#d33' });
         const showSuccess = (title, text) => Swal.fire({ icon: 'success', title, text, confirmButtonColor: THEME_COLOR });
@@ -554,24 +572,31 @@
                 
                 if(newPage === 'admin_orders' || (newPage === 'tax_invoice' && user?.role === 'admin')) {
                     promises.push(fetchAllOrders(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'history' || (newPage === 'tax_invoice' && user?.role !== 'admin')) {
                     promises.push(fetchHistory(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'purchase_order') {
                     promises.push(fetchPOs(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'admin_dashboard') {
                     promises.push(fetchDashboardData(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'franchise_stock' && user?.customerType === 'franchise') {
                     promises.push(fetchFranchiseStock(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'franchise_po' && user?.customerType === 'franchise') {
                     promises.push(fetchFranchisePOs(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'franchise_stock_log' && user?.customerType === 'franchise') {
                     promises.push(fetchFranchiseStockLog(true));
+                    needsLoading = true;
                 }
                 if(newPage === 'franchise_stock' && user?.customerType === 'franchise') {
                     // ดึงข้อมูลออเดอร์ด้วยเพื่อใช้ใน Import From Order
@@ -579,7 +604,14 @@
                 }
                 
                 // ตรวจสอบว่ามี promises หรือไม่ และต้องแสดง loading หรือไม่
-                if (promises.length > 0) {
+                if (promises.length > 0 && needsLoading) {
+                    // แสดงป๊อปอัพกำลังโหลดข้อมูล
+                    Swal.fire({ 
+                        title: 'กำลังโหลดข้อมูล...', 
+                        didOpen: () => Swal.showLoading(), 
+                        allowOutsideClick: false 
+                    });
+                    
                     // ใช้ Promise.allSettled เพื่อรอให้ทุก promise เสร็จ
                     Promise.allSettled(promises).then(() => { 
                         // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ถูกจัดการแล้ว
@@ -597,7 +629,7 @@
         // --- Effects ---
         useEffect(() => { 
            const initApp = async () => {
-               setIsLoading(true);
+               setIsInitialLoading(true);
                const storedUser = localStorage.getItem('partner_user');
                
                // ดึง products โดยไม่ต้องใช้ user (สำหรับหน้าแรก)
@@ -626,9 +658,9 @@
                       setPage('home'); 
                   }
                }
-               // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ถูกจัดการแล้วก่อนที่จะปิด loading screen
+               // ปิด initial loading screen หลังจากโหลดข้อมูลเสร็จ
                setTimeout(() => {
-                   setIsLoading(false);
+                   setIsInitialLoading(false);
                }, 100);
            };
            initApp();
@@ -638,6 +670,30 @@
             if (page === 'profile' && user) setProfileForm({ username: user.username, phone: user.phone, address: user.address });
             if (page === 'tax_invoice' && user) setTaxForm({ taxName: user.taxName || '', taxId: user.taxId || '', taxAddr: user.taxAddr || '' });
         }, [page, user]);
+        
+        // ตรวจสอบสถานะการบันทึกข้อมูลภาษีของออเดอร์ที่ชำระเงินแล้ว (สำหรับแอดมิน)
+        useEffect(() => {
+            if (user?.role === 'admin' && allOrders.length > 0) {
+                const paidOrders = allOrders.filter(o => o.status === 'ชำระเงินแล้ว' || o.status === 'จัดส่งแล้ว');
+                paidOrders.forEach(order => {
+                    if (!taxInvoiceRecordedStatus[order.id]) {
+                        checkOrderTaxInvoiceStatus(order.id);
+                    }
+                });
+            }
+        }, [allOrders, user]);
+        
+        // ตรวจสอบสถานะการบันทึกข้อมูลภาษีของออเดอร์ที่ชำระเงินแล้ว (สำหรับลูกค้า)
+        useEffect(() => {
+            if (user?.role !== 'admin' && orders.length > 0) {
+                const eligibleOrders = orders.filter(o => o.status === 'ชำระเงินแล้ว' || o.status === 'จัดส่งแล้ว');
+                eligibleOrders.forEach(order => {
+                    if (!taxInvoiceRecordedStatus[order.id]) {
+                        checkOrderTaxInvoiceStatus(order.id);
+                    }
+                });
+            }
+        }, [orders, user]);
 
         useEffect(() => {
             if (editingOrder && allOrders.length > 0) {
@@ -889,8 +945,8 @@
             if (searchTerm.trim() !== '') {
                 // ใช้ searchResults ที่ค้นหาจาก backend แล้ว และ filter ด้วย category และ supplier
                 return searchResults.filter(p => {
-                    const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
-                    const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
+             const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+             const matchSup = selectedSupplier === 'All' || p.supplier === selectedSupplier;
                     return matchCat && matchSup;
                 });
             } else {
@@ -930,8 +986,14 @@
 
         // --- Handlers ---
         const handleLogin = async (e) => { 
-          e.preventDefault(); setIsLoading(true); 
+          e.preventDefault(); 
+          Swal.fire({ 
+              title: 'กำลังเข้าสู่ระบบ...', 
+              didOpen: () => Swal.showLoading(), 
+              allowOutsideClick: false 
+          });
           const res = await callAPI({ action: 'login', email: loginForm.email, password: loginForm.password });
+          Swal.close();
           if (res.success) { 
               setUser(res.user); 
               localStorage.setItem('partner_user', JSON.stringify(res.user)); 
@@ -941,7 +1003,6 @@
               if (res.user.role === 'admin') { await fetchAllOrders(true); setPage('admin_orders'); } 
               else { setPage('home'); }
           } else { showError(res.message); } 
-          setIsLoading(false); 
         };
 
         const handleLogout = () => { 
@@ -961,8 +1022,40 @@
             }); 
         };
 
-        const handleUpdateProfile = async () => { setIsLoading(true); const res = await callAPI({ action: 'updateProfile', email: user.email, ...profileForm }); if(res.success) { const newUser = { ...user, ...profileForm }; setUser(newUser); localStorage.setItem('partner_user', JSON.stringify(newUser)); showSuccess('สำเร็จ', 'บันทึกข้อมูลเรียบร้อย'); } else { showError(res.message); } setIsLoading(false); };
-        const handleUpdateTax = async () => { setIsLoading(true); const res = await callAPI({ action: 'updateTaxProfile', email: user.email, ...taxForm }); if(res.success) { const newUser = { ...user, ...taxForm }; setUser(newUser); localStorage.setItem('partner_user', JSON.stringify(newUser)); showSuccess('สำเร็จ', 'บันทึกข้อมูลภาษีเรียบร้อย'); } else { showError(res.message); } setIsLoading(false); };
+        const handleUpdateProfile = async () => { 
+            Swal.fire({ 
+                title: 'กำลังบันทึกข้อมูล...', 
+                didOpen: () => Swal.showLoading(), 
+                allowOutsideClick: false 
+            });
+            const res = await callAPI({ action: 'updateProfile', email: user.email, ...profileForm }); 
+            Swal.close();
+            if(res.success) { 
+                const newUser = { ...user, ...profileForm }; 
+                setUser(newUser); 
+                localStorage.setItem('partner_user', JSON.stringify(newUser)); 
+                showSuccess('สำเร็จ', 'บันทึกข้อมูลเรียบร้อย'); 
+            } else { 
+                showError(res.message); 
+            } 
+        };
+        const handleUpdateTax = async () => { 
+            Swal.fire({ 
+                title: 'กำลังบันทึกข้อมูล...', 
+                didOpen: () => Swal.showLoading(), 
+                allowOutsideClick: false 
+            });
+            const res = await callAPI({ action: 'updateTaxProfile', email: user.email, ...taxForm }); 
+            Swal.close();
+            if(res.success) { 
+                const newUser = { ...user, ...taxForm }; 
+                setUser(newUser); 
+                localStorage.setItem('partner_user', JSON.stringify(newUser)); 
+                showSuccess('สำเร็จ', 'บันทึกข้อมูลภาษีเรียบร้อย'); 
+            } else { 
+                showError(res.message); 
+            } 
+        };
 
         const addToCart = (product, quantity) => { 
            if (cart.length > 0) { const currentSup = cart[0].supplier || 'Unknown'; const newSup = product.supplier || 'Unknown'; if (currentSup !== newSup) { showError(`กรุณาสั่งสินค้าของร้าน "${currentSup}" ให้เสร็จก่อน`); return; } }
@@ -1160,8 +1253,15 @@
                         // เรียก fetchAllOrders ใน silent mode
                         await fetchAllOrders(true, true); // silent=true, forceRefresh=true
                         
+                        // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ยังอยู่ใน DOM ก่อนที่จะปิด
+                        // และให้ React re-render ก่อนที่จะปิด Swal
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        
                         // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
-                        Swal.close();
+                        // ตรวจสอบว่ายังมี Swal container อยู่ก่อนปิด
+                        if (document.querySelector('.swal2-container')) {
+                            Swal.close();
+                        }
                     }
                 });
             } 
@@ -1252,8 +1352,15 @@
                             // เรียก fetchAllOrders ใน silent mode
                             await fetchAllOrders(true, true);
                             
+                            // ใช้ setTimeout เพื่อให้แน่ใจว่า Swal container ยังอยู่ใน DOM ก่อนที่จะปิด
+                            // และให้ React re-render ก่อนที่จะปิด Swal
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            
                             // ปิด Swal หลังจากอัพเดทข้อมูลเสร็จ
-                            Swal.close();
+                            // ตรวจสอบว่ายังมี Swal container อยู่ก่อนปิด
+                            if (document.querySelector('.swal2-container')) {
+                                Swal.close();
+                            }
                         }
                     });
                 } else {
@@ -2038,10 +2145,12 @@
                     setAppliedCoupon(null); 
                     setIsCheckoutOpen(false);
                     
-                    // อัพเดทข้อความใน popup เดิม (ไม่ปิดและเปิดใหม่)
-                    Swal.update({
+                    // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะอาจเกิดปัญหา)
+                    Swal.fire({
                         title: 'กำลังทำรายการ...',
-                        text: 'กำลังโหลดข้อมูล...'
+                        text: 'กำลังโหลดข้อมูล...',
+                        allowOutsideClick: false,
+                        didOpen: () => Swal.showLoading()
                     });
                     
                     // Refresh stock และ fetch history (silent mode เพื่อไม่แสดง popup ใหม่)
@@ -2052,7 +2161,7 @@
                     
                     // ปิด popup และแสดง success
                     Swal.close();
-                    showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ');
+                    showSuccess('สั่งซื้อสำเร็จ', 'ขอบคุณที่ใช้บริการ'); 
                     
                     // เปลี่ยนหน้าโดยตรง (ไม่ใช้ changePage เพื่อไม่แสดง loading popup ใหม่)
                     setPage('history');
@@ -2108,17 +2217,62 @@
         const handlePrintFullInvoice = async (order) => {
              Swal.fire({ title: 'กำลังตรวจสอบข้อมูล...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
              
+             // ตรวจสอบว่าเป็น admin หรือลูกค้า (ประกาศไว้ด้านนอกเพื่อใช้ได้ทุกที่)
+             const isAdmin = user && user.role === 'admin';
+             
              let taxName = "";
              let taxId = "";
              let taxAddrStr = "";
+             let eligibilityCheck = null; // ประกาศไว้ด้านนอกเพื่อใช้ได้ทุกที่
+             let taxInvoiceData = null; // ประกาศไว้ด้านนอกเพื่อใช้ได้ทุกที่
 
              try {
-                 // ตรวจสอบว่าเป็น admin หรือลูกค้า
-                 const isAdmin = user && user.role === 'admin';
+                 // สำหรับแอดมิน: ดึงข้อมูลจาก taxInvoiceRecordedStatus หรือตรวจสอบใหม่
+                 if (isAdmin) {
+                     const recordedStatus = taxInvoiceRecordedStatus[order.id];
+                     if (recordedStatus && recordedStatus.recorded) {
+                         taxInvoiceData = recordedStatus.data;
+                     } else {
+                         // ตรวจสอบสถานะใหม่
+                         const status = await checkOrderTaxInvoiceStatus(order.id);
+                         if (status) {
+                             taxInvoiceData = taxInvoiceRecordedStatus[order.id]?.data;
+                         }
+                     }
+                 }
                  
-                 // ตรวจสอบเงื่อนไข 7 วัน (สำหรับลูกค้าเท่านั้น)
+                 // สำหรับลูกค้า: ตรวจสอบว่าออเดอร์มีการบันทึกข้อมูลภาษีแล้วหรือยัง
                  if (!isAdmin) {
-                     const eligibilityCheck = await callAPI({ 
+                     const recordedStatus = taxInvoiceRecordedStatus[order.id];
+                     if (!recordedStatus) {
+                         // ตรวจสอบสถานะ
+                         const status = await checkOrderTaxInvoiceStatus(order.id);
+                         if (!status) {
+                             Swal.close();
+                             showError('ออเดอร์นี้ยังไม่มีการบันทึกข้อมูลภาษี กรุณาติดต่อแอดมิน');
+                             return;
+                         }
+                     } else if (!recordedStatus.recorded) {
+                         Swal.close();
+                         showError('ออเดอร์นี้ยังไม่มีการบันทึกข้อมูลภาษี กรุณาติดต่อแอดมิน');
+                         return;
+                     }
+                     
+                     // ดึงข้อมูลจาก taxInvoiceData ที่บันทึกไว้แล้ว (สำหรับลูกค้า)
+                     if (recordedStatus && recordedStatus.recorded && recordedStatus.data) {
+                         taxInvoiceData = recordedStatus.data;
+                     }
+                     
+                     // ตรวจสอบจำนวนครั้งที่พิมพ์ (จำกัด 1 ครั้งสำหรับลูกค้า)
+                     const printCount = recordedStatus?.data?.printCount || 0;
+                     if (printCount >= 1) {
+                         Swal.close();
+                         showError('คุณได้พิมพ์ใบกำกับภาษีครบ 1 ครั้งแล้ว กรุณาติดต่อแอดมินเพื่อพิมพ์เพิ่มเติม');
+                         return;
+                     }
+                     
+                     // ตรวจสอบเงื่อนไข 7 วัน (สำหรับลูกค้าเท่านั้น)
+                     eligibilityCheck = await callAPI({ 
                          action: 'checkTaxInvoiceEligibility', 
                          orderId: order.id, 
                          userEmail: user?.email 
@@ -2130,25 +2284,25 @@
                          return;
                      }
                  }
-                 
-                 // ตรวจสอบจำนวนครั้งที่พิมพ์ (จำกัด 3 ครั้งสำหรับลูกค้า)
-                 const printCount = await callAPI({ 
-                     action: 'getTaxInvoicePrintCount', 
-                     orderId: order.id, 
-                     userEmail: user?.email, 
-                     isAdmin: isAdmin 
-                 });
-                 
-                 if (!isAdmin && printCount.success && printCount.count >= 3) {
-                     Swal.close();
-                     showError('คุณได้พิมพ์ใบกำกับภาษีครบ 3 ครั้งแล้ว กรุณาติดต่อแอดมินเพื่อพิมพ์เพิ่มเติม');
-                     return;
-                 }
 
-                 // Priority 1: สำหรับลูกค้า (non-admin) ใช้ข้อมูลจาก Local State ก่อนเสมอ
+                 // Priority 1: สำหรับแอดมิน ใช้ข้อมูลจาก taxInvoiceData ที่บันทึกไว้
+                 if (isAdmin && taxInvoiceData) {
+                     taxName = String(taxInvoiceData.taxName || "").trim();
+                     taxId = String(taxInvoiceData.taxId || "").trim();
+                     taxAddrStr = String(taxInvoiceData.taxAddress || "").trim();
+                 }
+                 
+                 // Priority 1: สำหรับลูกค้า ใช้ข้อมูลจาก taxInvoiceData ที่บันทึกไว้แล้ว (ถ้ามี)
+                 if (!isAdmin && taxInvoiceData) {
+                     taxName = String(taxInvoiceData.taxName || "").trim();
+                     taxId = String(taxInvoiceData.taxId || "").trim();
+                     taxAddrStr = String(taxInvoiceData.taxAddress || "").trim();
+                 }
+                 
+                 // Priority 2: สำหรับลูกค้า (non-admin) ถ้ายังไม่มีข้อมูลจาก taxInvoiceData ให้ใช้ข้อมูลจาก Local State
                  // เพราะลูกค้าจะเห็นเฉพาะ order ของตัวเองอยู่แล้ว
                  // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ ไม่ใช่ที่อยู่จัดส่ง (address)
-                 if (!isAdmin && user) {
+                 if (!isAdmin && user && (!taxName || !taxId)) {
                     // 1.1 ใช้ taxForm state ก่อน (ค่าล่าสุดที่ผู้ใช้กรอกแต่ยังไม่ได้บันทึก)
                     // ตรวจสอบว่ามีค่าจริงๆ และไม่ใช่ empty string
                     if (taxForm && taxForm.taxName && String(taxForm.taxName).trim() !== "") {
@@ -2188,44 +2342,60 @@
                      orderUser: order.user
                  });
                  
-                 // สำหรับลูกค้า: ถ้ามีข้อมูลใน Local State แล้ว ไม่ต้องเรียก API
-                 // แต่สำหรับ admin หรือเมื่อ Local State ไม่มีค่า ให้ดึงจาก Server
-                 if (!hasLocalTaxData || isAdmin) {
-                 try {
-                        // เพิ่ม timeout สำหรับ API call (10 วินาที)
-                        const timeoutPromise = new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('API timeout')), 10000)
-                        );
-                        
-                        const apiPromise = callAPI({ action: 'getProfile', email: order.user });
-                        const res = await Promise.race([apiPromise, timeoutPromise]);
-                        
-                        if (res && res.success && res.user) {
-                             // ใช้ข้อมูลจาก Server เฉพาะเมื่อ Local State ไม่มีค่า หรือเป็น admin
-                             // และต้องตรวจสอบว่า Server ส่งค่ามาจริงๆ (ไม่ใช่ empty string)
-                             // สำหรับที่อยู่: ใช้ข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ
+                 // สำหรับแอดมิน: ถ้ายังไม่มีข้อมูลจาก taxInvoiceData ให้ดึงจาก Server
+                 if (isAdmin && !taxInvoiceData) {
+                     try {
+                         const apiPromise = callAPI({ action: 'getProfile', email: order.user });
+                         const res = await apiPromise;
+                         
+                         if (res && res.success && res.user) {
                              if (!taxName || taxName === "") {
                                  taxName = (res.user.taxName && String(res.user.taxName).trim() !== "") ? String(res.user.taxName).trim() : taxName;
                              }
                              if (!taxId || taxId === "") {
                                  taxId = (res.user.taxId && String(res.user.taxId).trim() !== "") ? String(res.user.taxId).trim() : taxId;
                              }
-                             // ใช้ที่อยู่จากข้อมูลใบกำกับภาษีล่าสุด (taxAddr) เสมอ ไม่ใช่ที่อยู่จัดส่ง (address)
-                             if (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") {
-                                 taxAddrStr = String(res.user.taxAddr).trim();
-                             } else if (!taxAddrStr || taxAddrStr === "") {
-                                 taxAddrStr = (res.user.address && String(res.user.address).trim() !== "") ? String(res.user.address).trim() : taxAddrStr;
+                             if (!taxAddrStr || taxAddrStr === "") {
+                                 if (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") {
+                                     taxAddrStr = String(res.user.taxAddr).trim();
+                                 } else if (res.user.address && String(res.user.address).trim() !== "") {
+                                     taxAddrStr = String(res.user.address).trim();
+                                 }
+                             }
+                         }
+                     } catch(e) {
+                         console.error('Error fetching profile for admin:', e);
+                     }
+                 }
+                 
+                 // สำหรับลูกค้า: ถ้ามีข้อมูลใน Local State แล้ว ไม่ต้องเรียก API
+                 // แต่ถ้ายังไม่มีค่า ให้ดึงจาก Server
+                 if (!isAdmin && !hasLocalTaxData) {
+                     try {
+                         const apiPromise = callAPI({ action: 'getProfile', email: order.user });
+                         const res = await apiPromise;
+                         
+                         if (res && res.success && res.user) {
+                             if (!taxName || taxName === "") {
+                                 taxName = (res.user.taxName && String(res.user.taxName).trim() !== "") ? String(res.user.taxName).trim() : taxName;
+                             }
+                             if (!taxId || taxId === "") {
+                                 taxId = (res.user.taxId && String(res.user.taxId).trim() !== "") ? String(res.user.taxId).trim() : taxId;
+                             }
+                             if (!taxAddrStr || taxAddrStr === "") {
+                                 if (res.user.taxAddr && String(res.user.taxAddr).trim() !== "") {
+                                     taxAddrStr = String(res.user.taxAddr).trim();
+                                 } else if (res.user.address && String(res.user.address).trim() !== "") {
+                                     taxAddrStr = String(res.user.address).trim();
+                                 }
                              }
                              console.log('Tax Invoice - Data from Server:', { taxName, taxId, taxAddrStr });
-                    }
-                     } catch(e) { 
-                         console.error('Error fetching profile:', e);
-                         // ถ้า API ล้มเหลว แต่มีข้อมูลใน Local State อยู่แล้ว ก็ใช้ข้อมูลนั้น
-                         if (!hasLocalTaxData) {
-                             console.warn('API failed and no local data available');
                          }
-             }
-                 } else {
+                     } catch(e) {
+                         console.error('Error fetching profile:', e);
+                         console.warn('API failed and no local data available');
+                     }
+                 } else if (!isAdmin) {
                      console.log('Tax Invoice - Using Local State:', { taxName, taxId, taxAddrStr });
                  }
              } catch(e) {
@@ -2237,13 +2407,22 @@
 
              // ** Condition Check **
              // ตรวจสอบว่ามีข้อมูลครบถ้วนหรือไม่ (ต้องมีทั้ง taxName และ taxId)
-             const hasValidTaxData = taxName && taxName.trim() !== "" && taxId && taxId.trim() !== "";
+             // แปลงเป็น string ก่อนเรียก .trim() เพื่อป้องกัน TypeError
+             const taxNameStr = String(taxName || "").trim();
+             const taxIdStr = String(taxId || "").trim();
+             const hasValidTaxData = taxNameStr !== "" && taxIdStr !== "";
+             
+             // อัพเดทค่า taxName, taxId, taxAddrStr ให้เป็น string ที่ถูกต้อง
+             taxName = taxNameStr;
+             taxId = taxIdStr;
+             taxAddrStr = String(taxAddrStr || "").trim();
              
              console.log('Tax Invoice - Final Check:', {
                  hasValidTaxData,
                  taxName: taxName || '(empty)',
                  taxId: taxId || '(empty)',
-                 taxAddrStr: taxAddrStr || '(empty)'
+                 taxAddrStr: taxAddrStr || '(empty)',
+                 taxInvoiceData: taxInvoiceData ? 'exists' : 'null'
              });
              
              if (!hasValidTaxData) {
@@ -2269,43 +2448,59 @@
                 }
              }
 
-             const itemsHtml = order.items.map((it, i) => `<tr><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${i+1}</td><td style="border-bottom:1px solid #eee;padding:8px 5px;">${it.name}</td><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${it.qty}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${Number(it.price).toLocaleString(undefined, {minimumFractionDigits: 2})}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${(it.price*it.qty).toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`).join('');
-             const subtotal = order.items.reduce((s,i)=>s+i.price*i.qty,0);
-             let discVal = 0; const match = String(order.discountInfo || "").match(/-(\d+)B/); if (match) discVal = parseInt(match[1]);
-             const shipping = Number(order.shippingCost) || 0;
+             // ใช้ข้อมูลสินค้าและราคาจาก taxInvoiceData ถ้ามี (สำหรับแอดมิน) หรือจาก order (สำหรับลูกค้า)
+             let itemsToDisplay = order.items;
+             let subtotal = order.items.reduce((s,i)=>s+i.price*i.qty,0);
+             let discVal = 0;
+             let shipping = Number(order.shippingCost) || 0;
+             
+             if (isAdmin && taxInvoiceData && taxInvoiceData.items) {
+                 // สำหรับแอดมิน: ใช้ข้อมูลจาก taxInvoiceData ที่บันทึกไว้
+                 itemsToDisplay = taxInvoiceData.items;
+                 subtotal = taxInvoiceData.subtotal || subtotal;
+                 discVal = taxInvoiceData.discount || 0;
+                 shipping = taxInvoiceData.shipping || shipping;
+             } else {
+                 // สำหรับลูกค้าหรือเมื่อไม่มี taxInvoiceData: ใช้ข้อมูลจาก order
+                 const match = String(order.discountInfo || "").match(/-(\d+)B/);
+                 if (match) discVal = parseInt(match[1]);
+             }
+             
              const grandTotal = subtotal - discVal + shipping;
-             const vat = grandTotal * 7 / 107; const preVat = grandTotal - vat;
+             const vat = grandTotal * 7 / 107;
+             const preVat = grandTotal - vat;
+             
+             const itemsHtml = itemsToDisplay.map((it, i) => `<tr><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${i+1}</td><td style="border-bottom:1px solid #eee;padding:8px 5px;">${it.name}</td><td style="text-align:center;border-bottom:1px solid #eee;padding:8px 5px;">${it.qty}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${Number(it.price).toLocaleString(undefined, {minimumFractionDigits: 2})}</td><td style="text-align:right;border-bottom:1px solid #eee;padding:8px 5px;">${(it.price*it.qty).toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`).join('');
 
-             // ดึงวันที่อนุมัติออเดอร์ (วันที่ที่ status เป็น "ชำระเงินแล้ว")
+             // ดึงวันที่อนุมัติออเดอร์
              let orderDateObj = new Date();
-             try {
-                 const eligibilityCheck = await callAPI({ 
-                     action: 'checkTaxInvoiceEligibility', 
-                     orderId: order.id, 
-                     userEmail: user?.email 
-                 });
-                 
-                 if (eligibilityCheck.success && eligibilityCheck.approvalDate) {
-                     orderDateObj = new Date(eligibilityCheck.approvalDate);
-                 } else if (order.date) {
-                     // Fallback: ใช้ order.date ถ้าไม่มี approvalDate
-                     try {
-                         const dateStr = order.date.toString().trim();
-                         const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                         if (dateMatch) {
-                             const day = parseInt(dateMatch[1]);
-                             const month = parseInt(dateMatch[2]) - 1;
-                             const year = parseInt(dateMatch[3]);
-                             const ceYear = year - 543;
-                             orderDateObj = new Date(ceYear, month, day);
-                         }
-                     } catch(e) {
-                         orderDateObj = new Date();
+             let approvalDate = null;
+             
+             // สำหรับแอดมิน: ใช้ข้อมูลจาก taxInvoiceData
+             if (isAdmin && taxInvoiceData && taxInvoiceData.invoiceDate) {
+                 orderDateObj = new Date(taxInvoiceData.invoiceDate);
+                 approvalDate = taxInvoiceData.invoiceDate;
+             } else if (!isAdmin && eligibilityCheck && eligibilityCheck.success && eligibilityCheck.approvalDate) {
+                 // สำหรับลูกค้า: ใช้ข้อมูลจาก eligibilityCheck
+                 orderDateObj = new Date(eligibilityCheck.approvalDate);
+                 approvalDate = eligibilityCheck.approvalDate;
+             } else if (order.date) {
+                 // Fallback: ใช้ order.date ถ้าไม่มี approvalDate
+                 try {
+                     const dateStr = order.date.toString().trim();
+                     const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                     if (dateMatch) {
+                         const day = parseInt(dateMatch[1]);
+                         const month = parseInt(dateMatch[2]) - 1;
+                         const year = parseInt(dateMatch[3]);
+                         const ceYear = year - 543;
+                         orderDateObj = new Date(ceYear, month, day);
+                         approvalDate = orderDateObj;
                      }
+                 } catch(e) {
+                     orderDateObj = new Date();
+                     approvalDate = orderDateObj;
                  }
-             } catch(e) {
-                 console.error('Error getting approval date:', e);
-                 orderDateObj = new Date();
              }
              const orderDateStr = orderDateObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
              
@@ -2320,34 +2515,70 @@
                 </div>
              </body></html>`;
              
-             // บันทึกการออกใบกำกับภาษี
-             try {
-                 const eligibilityCheck = await callAPI({ 
-                     action: 'checkTaxInvoiceEligibility', 
-                     orderId: order.id, 
-                     userEmail: user?.email 
-                 });
-                 
-                 const invoiceData = {
-                     userEmail: order.user,
-                     invoiceDate: eligibilityCheck.approvalDate || orderDateObj,
-                     taxName: taxName,
-                     taxId: taxId,
-                     taxAddress: taxAddrStr
-                 };
-                 
-                 await callAPI({ 
-                     action: 'recordTaxInvoice', 
-                     orderId: order.id, 
-                     invoiceData: invoiceData,
-                     userEmail: user?.email,
-                     isAdmin: isAdmin
-                 });
-             } catch(e) {
-                 console.error('Error recording tax invoice:', e);
-                 // ไม่ block การพิมพ์ถ้าบันทึกไม่สำเร็จ
+             // บันทึกการพิมพ์ (สำหรับลูกค้าเท่านั้น - เพิ่ม printCount)
+             if (!isAdmin) {
+                 try {
+                     Swal.fire({ 
+                         title: 'กำลังบันทึกข้อมูล...', 
+                         text: 'กรุณารอสักครู่', 
+                         allowOutsideClick: false, 
+                         didOpen: () => Swal.showLoading() 
+                     });
+                     
+                     // ดึงข้อมูลจาก taxInvoiceData ที่บันทึกไว้แล้ว
+                     const recordedData = taxInvoiceRecordedStatus[order.id]?.data;
+                     
+                     const invoiceData = {
+                         userEmail: order.user,
+                         invoiceDate: approvalDate || orderDateObj,
+                         taxName: recordedData?.taxName || taxName,
+                         taxId: recordedData?.taxId || taxId,
+                         taxAddress: recordedData?.taxAddress || taxAddrStr,
+                         subtotal: recordedData?.subtotal || subtotal,
+                         discount: recordedData?.discount || discVal,
+                         shipping: recordedData?.shipping || shipping,
+                         total: recordedData?.total || grandTotal,
+                         vat: recordedData?.vat || vat,
+                         preVat: recordedData?.preVat || preVat
+                     };
+                     
+                     const recordResult = await callAPI({ 
+                         action: 'recordTaxInvoice', 
+                         orderId: order.id, 
+                         invoiceData: invoiceData,
+                         userEmail: user?.email,
+                         isAdmin: false,
+                         items: recordedData?.items || itemsToDisplay
+                     });
+                     
+                     Swal.close();
+                     
+                     if (recordResult && recordResult.success) {
+                         console.log('Tax invoice print recorded successfully:', {
+                             orderId: order.id,
+                             printCount: recordResult.printCount
+                         });
+                         // อัพเดทสถานะ
+                         setTaxInvoiceRecordedStatus(prev => ({
+                             ...prev,
+                             [order.id]: {
+                                 recorded: true,
+                                 data: {
+                                     ...recordedData,
+                                     printCount: recordResult.printCount
+                                 }
+                             }
+                         }));
+                     } else {
+                         console.warn('Failed to record tax invoice print:', recordResult?.message || 'Unknown error');
+                     }
+                 } catch(e) {
+                     Swal.close();
+                     console.error('Error recording tax invoice print:', e);
+                 }
              }
              
+             // เปิดหน้าต่างพิมพ์หลังจากบันทึกข้อมูลเสร็จ
              openPrintWindow(content);
         };
 
@@ -2633,11 +2864,188 @@
              openPrintWindow(content);
         };
 
+        // ฟังก์ชันตรวจสอบว่าออเดอร์มีการบันทึกข้อมูลภาษีแล้วหรือยัง
+        const checkOrderTaxInvoiceStatus = async (orderId) => {
+            try {
+                const result = await callAPI({
+                    action: 'checkTaxInvoiceRecorded',
+                    orderId: orderId
+                });
+                
+                if (result && result.success) {
+                    setTaxInvoiceRecordedStatus(prev => ({
+                        ...prev,
+                        [orderId]: { recorded: result.recorded, data: result.recorded ? result : null }
+                    }));
+                    return result.recorded;
+                }
+                return false;
+            } catch (e) {
+                console.error('Error checking tax invoice status:', e);
+                return false;
+            }
+        };
+        
+        // ฟังก์ชันบันทึกข้อมูลภาษีสำหรับแอดมิน
+        const handleSaveTaxInvoiceData = async (order) => {
+            // ตรวจสอบว่าออเดอร์ได้รับการอนุมัติเงินแล้วหรือยัง
+            if (order.status !== 'ชำระเงินแล้ว' && order.status !== 'จัดส่งแล้ว') {
+                showError('กรุณาอนุมัติเงินก่อนบันทึกข้อมูลภาษี');
+                return;
+            }
+            
+            try {
+                // ดึงข้อมูลลูกค้า
+                Swal.fire({ 
+                    title: 'กำลังโหลดข้อมูล...', 
+                    didOpen: () => Swal.showLoading(), 
+                    allowOutsideClick: false 
+                });
+                
+                const profileRes = await callAPI({ action: 'getProfile', email: order.user });
+                let customerTaxData = {
+                    taxName: '',
+                    taxId: '',
+                    taxAddress: ''
+                };
+                
+                if (profileRes && profileRes.success && profileRes.user) {
+                    customerTaxData = {
+                        taxName: profileRes.user.taxName || '',
+                        taxId: profileRes.user.taxId || '',
+                        taxAddress: profileRes.user.taxAddr || profileRes.user.address || ''
+                    };
+                }
+                
+                // ตรวจสอบว่ามีการบันทึกข้อมูลภาษีแล้วหรือยัง
+                const recordedStatus = taxInvoiceRecordedStatus[order.id];
+                let existingData = null;
+                
+                if (recordedStatus && recordedStatus.recorded) {
+                    // ถ้ามีการบันทึกแล้ว ให้ใช้ข้อมูลเดิม
+                    existingData = recordedStatus.data;
+                }
+                
+                // คำนวณยอดรวมจาก order
+                const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                let discVal = 0;
+                const match = String(order.discountInfo || "").match(/-(\d+)B/);
+                if (match) discVal = parseInt(match[1]);
+                const shipping = Number(order.shippingCost) || 0;
+                const grandTotal = subtotal - discVal + shipping;
+                const vat = grandTotal * 7 / 107;
+                const preVat = grandTotal - vat;
+                
+                // ตั้งค่า form (ใช้ข้อมูลเดิมถ้ามี หรือข้อมูลใหม่)
+                setTaxInvoiceForm({
+                    taxName: existingData?.taxName || customerTaxData.taxName,
+                    taxId: existingData?.taxId || customerTaxData.taxId,
+                    taxAddress: existingData?.taxAddress || customerTaxData.taxAddress,
+                    items: existingData?.items || order.items.map(item => ({
+                        name: item.name,
+                        qty: item.qty,
+                        price: item.price,
+                        total: item.price * item.qty
+                    })),
+                    subtotal: existingData?.subtotal || subtotal,
+                    discount: existingData?.discount || discVal,
+                    shipping: existingData?.shipping || shipping,
+                    total: existingData?.total || grandTotal,
+                    vat: existingData?.vat || vat,
+                    preVat: existingData?.preVat || preVat
+                });
+                
+                setEditingOrderForTax(order);
+                Swal.close();
+                setIsTaxInvoiceModalOpen(true);
+            } catch (e) {
+                Swal.close();
+                console.error('Error loading tax invoice data:', e);
+                showError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+            }
+        };
+        
+        // ฟังก์ชันบันทึกข้อมูลภาษีลง Sheets
+        const handleSubmitTaxInvoiceData = async () => {
+            if (!editingOrderForTax) return;
+            
+            if (!taxInvoiceForm.taxName || !taxInvoiceForm.taxId) {
+                showError('กรุณากรอกชื่อและเลขประจำตัวผู้เสียภาษี');
+                return;
+            }
+            
+            try {
+                Swal.fire({ 
+                    title: 'กำลังบันทึกข้อมูล...', 
+                    didOpen: () => Swal.showLoading(), 
+                    allowOutsideClick: false 
+                });
+                
+                // ดึงวันที่อนุมัติออเดอร์
+                const eligibilityCheck = await callAPI({ 
+                    action: 'checkTaxInvoiceEligibility', 
+                    orderId: editingOrderForTax.id, 
+                    userEmail: user?.email 
+                });
+                
+                const approvalDate = eligibilityCheck.success && eligibilityCheck.approvalDate 
+                    ? new Date(eligibilityCheck.approvalDate) 
+                    : new Date();
+                
+                const invoiceData = {
+                    userEmail: editingOrderForTax.user,
+                    invoiceDate: approvalDate,
+                    taxName: taxInvoiceForm.taxName,
+                    taxId: taxInvoiceForm.taxId,
+                    taxAddress: taxInvoiceForm.taxAddress,
+                    subtotal: taxInvoiceForm.subtotal,
+                    discount: taxInvoiceForm.discount,
+                    shipping: taxInvoiceForm.shipping,
+                    total: taxInvoiceForm.total,
+                    vat: taxInvoiceForm.vat,
+                    preVat: taxInvoiceForm.preVat
+                };
+                
+                const result = await callAPI({
+                    action: 'recordTaxInvoice',
+                    orderId: editingOrderForTax.id,
+                    invoiceData: invoiceData,
+                    userEmail: user?.email,
+                    isAdmin: true,
+                    items: taxInvoiceForm.items
+                });
+                
+                Swal.close();
+                
+                if (result && result.success) {
+                    showSuccess('สำเร็จ', 'บันทึกข้อมูลภาษีเรียบร้อยแล้ว');
+                    setIsTaxInvoiceModalOpen(false);
+                    setEditingOrderForTax(null);
+                    
+                    // อัพเดทสถานะ
+                    setTaxInvoiceRecordedStatus(prev => ({
+                        ...prev,
+                        [editingOrderForTax.id]: { recorded: true, data: { ...invoiceData, items: taxInvoiceForm.items, printCount: 0 } }
+                    }));
+                    
+                    // Refresh orders
+                    await fetchAllOrders(true, true);
+                } else {
+                    showError(result?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+                }
+            } catch (e) {
+                Swal.close();
+                console.error('Error saving tax invoice data:', e);
+                showError('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            }
+        };
+
         // --- View Logic ---
         const displayedProductsList = useMemo(() => displayedProducts, [displayedProducts]);
 
         // --- Render UI ---
-        if (isLoading && !document.querySelector('.swal2-container')) return (
+        // แสดง loading screen เฉพาะตอนเริ่มต้นแอปเท่านั้น
+        if (isInitialLoading) return (
             <div className="fixed inset-0 z-50 gradient-bg flex flex-col items-center justify-center">
                 {/* Animated Logo */}
                 <div className="relative mb-8">
@@ -3016,9 +3424,9 @@
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 text-sm font-bold">
                                     <div className="flex flex-wrap items-center gap-4 mb-4 font-normal">
                                         <div className="flex flex-wrap items-center gap-4">
-                                            <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
+                                        <div className="flex gap-2 items-center text-sm font-bold text-gray-600"><Icon icon="fa-calendar-alt"/> กรองตามวันที่:</div>
                                             <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateStartInput} onChange={e=>setDateStartInput(e.target.value)} />
-                                            <span>ถึง</span>
+                                        <span>ถึง</span>
                                             <input type="date" className="border rounded p-1 text-sm outline-none font-normal" value={dateEndInput} onChange={e=>setDateEndInput(e.target.value)} />
                                             <button 
                                                 onClick={() => {
@@ -3105,7 +3513,13 @@
                                             {order.status === 'รอตรวจสอบ' && <button onClick={() => openEditModal(order)} className="bg-gray-100 text-blue-600 px-3 py-2 rounded-lg text-xs hover:bg-blue-50 transition"><Icon icon="fa-edit" className="mr-1" /> แก้ไข</button>}
                                             <button onClick={() => handlePrintLabel(order)} className="bg-gray-100 px-3 py-2 rounded-lg text-xs font-bold"><Icon icon="fa-print" className="mr-1"/> ปะหน้า</button>
                                             <button onClick={() => handlePrintReceipt(order)} className="bg-gray-100 px-3 py-2 rounded-lg text-xs font-bold"><Icon icon="fa-receipt" className="mr-1"/> ใบเสร็จ</button>
-                                            <button onClick={() => handlePrintFullInvoice(order)} className="bg-gray-100 px-3 py-2 rounded-lg text-xs font-bold"><Icon icon="fa-file-invoice" className="mr-1"/> ใบกำกับ</button>
+                                            {(order.status === 'ชำระเงินแล้ว' || order.status === 'จัดส่งแล้ว') && (
+                                                taxInvoiceRecordedStatus[order.id]?.recorded ? (
+                                                    <button onClick={() => handleSaveTaxInvoiceData(order)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 transition"><Icon icon="fa-file-invoice" className="mr-1"/> ออกใบกำกับภาษี/แก้ไข</button>
+                                                ) : (
+                                                    <button onClick={() => handleSaveTaxInvoiceData(order)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition"><Icon icon="fa-save" className="mr-1"/> บันทึกข้อมูลภาษี</button>
+                                                )
+                                            )}
                                             {order.status === 'รอตรวจสอบ' && <button onClick={() => updateOrderStatusFn(order.id, 'ชำระเงินแล้ว')} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs shadow hover:bg-blue-700 transition active:scale-95 font-bold">อนุมัติเงิน</button>}
                                                         {order.status === 'ชำระเงินแล้ว' && !isSelected && (
                                                             <button onClick={() => handleShipOrder(order.id)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs shadow transition font-bold">ส่งสินค้า</button>
@@ -3211,7 +3625,50 @@
                                         </div>
                                         <button onClick={handleUpdateTax} className="bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition active:scale-95 shadow-md uppercase tracking-wider">บันทึกข้อมูลภาษี</button>
                                     </div>
-                                    <div><h3 className="text-lg font-bold mb-4 font-bold">รายการที่พิมพ์ใบกำกับภาษีได้</h3><div className="space-y-3 font-normal text-gray-800">{(user?.role === 'admin' ? allOrders : orders).filter(o => o.status === 'จัดส่งแล้ว' || o.status === 'ชำระเงินแล้ว').map(order => (<div key={order.id} className="bg-white p-4 rounded-xl border flex justify-between items-center shadow-sm font-normal"><div><div className="font-bold text-gray-800 uppercase">{order.id}</div><div className="text-xs text-gray-500 font-normal">{order.date} | ฿{Number(order.total).toLocaleString()}</div></div><button onClick={() => handlePrintFullInvoice(order)} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 hover:bg-emerald-700 shadow-sm transition active:scale-95 font-bold"><Icon icon="fa-print"/> ใบกำกับเต็มรูป</button></div>))}</div></div>
+                                    <div>
+                                        <h3 className="text-lg font-bold mb-4 font-bold">รายการที่พิมพ์ใบกำกับภาษีได้</h3>
+                                        <div className="space-y-3 font-normal text-gray-800">
+                                            {(user?.role === 'admin' ? allOrders : orders)
+                                                .filter(o => {
+                                                    if (user?.role === 'admin') {
+                                                        // แอดมินเห็นออเดอร์ที่บันทึกข้อมูลภาษีแล้ว
+                                                        return taxInvoiceRecordedStatus[o.id]?.recorded === true;
+                                                    } else {
+                                                        // ลูกค้าเห็นออเดอร์ที่บันทึกข้อมูลภาษีแล้วและยังพิมพ์ได้ (1 ครั้ง)
+                                                        return taxInvoiceRecordedStatus[o.id]?.recorded === true && 
+                                                               (o.status === 'จัดส่งแล้ว' || o.status === 'ชำระเงินแล้ว');
+                                                    }
+                                                })
+                                                .map(order => {
+                                                    const printCount = taxInvoiceRecordedStatus[order.id]?.data?.printCount || 0;
+                                                    const canPrint = user?.role === 'admin' || printCount < 1;
+                                                    
+                                                    return (
+                                                        <div key={order.id} className="bg-white p-4 rounded-xl border flex justify-between items-center shadow-sm font-normal">
+                                                            <div>
+                                                                <div className="font-bold text-gray-800 uppercase">{order.id}</div>
+                                                                <div className="text-xs text-gray-500 font-normal">{order.date} | ฿{Number(order.total).toLocaleString()}</div>
+                                                                {user?.role !== 'admin' && printCount >= 1 && (
+                                                                    <div className="text-xs text-red-600 font-bold mt-1">พิมพ์แล้ว (1 ครั้ง)</div>
+                                                                )}
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => handlePrintFullInvoice(order)} 
+                                                                disabled={!canPrint}
+                                                                className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 shadow-sm transition active:scale-95 font-bold ${
+                                                                    canPrint 
+                                                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700' 
+                                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                                }`}
+                                                            >
+                                                                <Icon icon="fa-print"/> ใบกำกับเต็มรูป
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })
+                                            }
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -3261,11 +3718,11 @@
                                             </button>
                                         </div>
                                     </div>
-                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4">
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
-                                            <input 
-                                                className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4">
+                                     <div className="relative">
+                                        <span className="absolute left-3 top-3 text-gray-400"><Icon icon="fa-search"/></span>
+                                        <input 
+                                            className="w-full pl-10 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-gray-800 outline-none transition font-normal" 
                                                 placeholder="ค้นหาสินค้า..." 
                                                 value={franchiseStockSearchTerm} 
                                                 onChange={e => setFranchiseStockSearchTerm(e.target.value)} 
@@ -3356,14 +3813,13 @@
                                                                                                 allowOutsideClick: false
                                                                                             }).then(async (result) => {
                                                                                                 if (result.isConfirmed) {
-                                                                                                    Swal.update({
+                                                                                                    // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                                                                                                    Swal.fire({
                                                                                                         title: 'กำลังอัพเดทข้อมูล...',
                                                                                                         text: 'กรุณารอสักครู่',
-                                                                                                        icon: null,
-                                                                                                        showConfirmButton: false,
-                                                                                                        allowOutsideClick: false
+                                                                                                        allowOutsideClick: false,
+                                                                                                        didOpen: () => Swal.showLoading()
                                                                                                     });
-                                                                                                    Swal.showLoading();
                                                                                                     await fetchFranchiseStock(true, true);
                                                                                                     Swal.close();
                                                                                                 }
@@ -3413,14 +3869,13 @@
                                                                                                         allowOutsideClick: false
                                                                                                     }).then(async (result) => {
                                                                                                         if (result.isConfirmed) {
-                                                                                                            Swal.update({
+                                                                                                            // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                                                                                                            Swal.fire({
                                                                                                                 title: 'กำลังอัพเดทข้อมูล...',
                                                                                                                 text: 'กรุณารอสักครู่',
-                                                                                                                icon: null,
-                                                                                                                showConfirmButton: false,
-                                                                                                                allowOutsideClick: false
+                                                                                                                allowOutsideClick: false,
+                                                                                                                didOpen: () => Swal.showLoading()
                                                                                                             });
-                                                                                                            Swal.showLoading();
                                                                                                             await fetchFranchiseStock(true, true);
                                                                                                             Swal.close();
                                                                                                         }
@@ -3472,14 +3927,13 @@
                                                                                                         allowOutsideClick: false
                                                                                                     }).then(async (result) => {
                                                                                                         if (result.isConfirmed) {
-                                                                                                            Swal.update({
+                                                                                                            // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                                                                                                            Swal.fire({
                                                                                                                 title: 'กำลังอัพเดทข้อมูล...',
                                                                                                                 text: 'กรุณารอสักครู่',
-                                                                                                                icon: null,
-                                                                                                                showConfirmButton: false,
-                                                                                                                allowOutsideClick: false
+                                                                                                                allowOutsideClick: false,
+                                                                                                                didOpen: () => Swal.showLoading()
                                                                                                             });
-                                                                                                            Swal.showLoading();
                                                                                                             await fetchFranchiseStock(true, true);
                                                                                                             Swal.close();
                                                                                                         }
@@ -3523,14 +3977,13 @@
                                                                                                 allowOutsideClick: false
                                                                                             }).then(async (result) => {
                                                                                                 if (result.isConfirmed) {
-                                                                                                    Swal.update({
+                                                                                                    // เปิด popup ใหม่สำหรับ loading (ไม่ใช้ update เพราะ popup เดิมปิดแล้ว)
+                                                                                                    Swal.fire({
                                                                                                         title: 'กำลังอัพเดทข้อมูล...',
                                                                                                         text: 'กรุณารอสักครู่',
-                                                                                                        icon: null,
-                                                                                                        showConfirmButton: false,
-                                                                                                        allowOutsideClick: false
+                                                                                                        allowOutsideClick: false,
+                                                                                                        didOpen: () => Swal.showLoading()
                                                                                                     });
-                                                                                                    Swal.showLoading();
                                                                                                     await fetchFranchiseStock(true, true);
                                                                                                     Swal.close();
                                                                                                 }
@@ -5522,6 +5975,193 @@
                                     className="w-full bg-gray-200 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-300 transition"
                                 >
                                     ยกเลิก
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Tax Invoice Data Modal (Admin) */}
+                {isTaxInvoiceModalOpen && editingOrderForTax && (
+                    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 text-gray-800 font-normal">
+                        <div className="absolute inset-0 bg-black bg-opacity-70" onClick={() => setIsTaxInvoiceModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh] font-normal">
+                            <div className="p-4 bg-emerald-600 text-white font-bold flex justify-between items-center">
+                                <span><Icon icon="fa-file-invoice-dollar" className="mr-2" />บันทึกข้อมูลภาษี - {editingOrderForTax.id}</span>
+                                <button onClick={() => setIsTaxInvoiceModalOpen(false)}><Icon icon="fa-times"/></button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+                                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-sm text-blue-800 font-bold">
+                                        <Icon icon="fa-info-circle" className="mr-1" />
+                                        กรอกข้อมูลผู้เสียภาษีและตรวจสอบรายการสินค้า สามารถแก้ไขราคาได้
+                                    </p>
+                                </div>
+                                
+                                {/* Tax Information */}
+                                <div className="bg-white rounded-lg border p-4 mb-4">
+                                    <h3 className="font-bold text-lg mb-3 text-emerald-800">ข้อมูลผู้เสียภาษี</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อบริษัท / ผู้เสียภาษี *</label>
+                                            <input
+                                                type="text"
+                                                value={taxInvoiceForm.taxName}
+                                                onChange={(e) => setTaxInvoiceForm({...taxInvoiceForm, taxName: e.target.value})}
+                                                className="w-full border rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                placeholder="ระบุชื่อตามใบ ภ.พ. 20..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">เลขประจำตัวผู้เสียภาษี *</label>
+                                            <input
+                                                type="text"
+                                                value={taxInvoiceForm.taxId}
+                                                onChange={(e) => setTaxInvoiceForm({...taxInvoiceForm, taxId: e.target.value})}
+                                                className="w-full border rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                placeholder="ระบุเลข 13 หลัก"
+                                            />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">ที่อยู่ (ตามหน้าบัตรหรือ ภ.พ. 20)</label>
+                                            <textarea
+                                                value={taxInvoiceForm.taxAddress}
+                                                onChange={(e) => setTaxInvoiceForm({...taxInvoiceForm, taxAddress: e.target.value})}
+                                                className="w-full border rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                rows="3"
+                                                placeholder="ที่อยู่ (ตามหน้าบัตรหรือ ภ.พ. 20)"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {/* Items List */}
+                                <div className="bg-white rounded-lg border p-4 mb-4">
+                                    <h3 className="font-bold text-lg mb-3 text-emerald-800">รายการสินค้า</h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-gray-100 font-bold">
+                                                <tr>
+                                                    <th className="p-2 text-left">#</th>
+                                                    <th className="p-2 text-left">รายการ</th>
+                                                    <th className="p-2 text-center">จำนวน</th>
+                                                    <th className="p-2 text-right">ราคา/หน่วย</th>
+                                                    <th className="p-2 text-right">รวม</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                                {taxInvoiceForm.items.map((item, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="p-2">{idx + 1}</td>
+                                                        <td className="p-2 font-bold">{item.name}</td>
+                                                        <td className="p-2 text-center">{item.qty}</td>
+                                                        <td className="p-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={item.price}
+                                                                onChange={(e) => {
+                                                                    const newItems = [...taxInvoiceForm.items];
+                                                                    newItems[idx].price = parseFloat(e.target.value) || 0;
+                                                                    newItems[idx].total = newItems[idx].price * newItems[idx].qty;
+                                                                    const newSubtotal = newItems.reduce((sum, i) => sum + i.total, 0);
+                                                                    const newTotal = newSubtotal - taxInvoiceForm.discount + taxInvoiceForm.shipping;
+                                                                    const newVat = newTotal * 7 / 107;
+                                                                    const newPreVat = newTotal - newVat;
+                                                                    setTaxInvoiceForm({
+                                                                        ...taxInvoiceForm,
+                                                                        items: newItems,
+                                                                        subtotal: newSubtotal,
+                                                                        total: newTotal,
+                                                                        vat: newVat,
+                                                                        preVat: newPreVat
+                                                                    });
+                                                                }}
+                                                                className="w-24 border rounded p-1 text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                            />
+                                                        </td>
+                                                        <td className="p-2 text-right font-bold">{item.total.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                {/* Summary */}
+                                <div className="bg-white rounded-lg border p-4">
+                                    <h3 className="font-bold text-lg mb-3 text-emerald-800">สรุปยอด</h3>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <span>รวมเงิน:</span>
+                                            <span className="font-bold">{taxInvoiceForm.subtotal.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>ส่วนลด:</span>
+                                            <span className="font-bold text-red-600">-{taxInvoiceForm.discount.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>ค่าขนส่ง:</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                value={taxInvoiceForm.shipping}
+                                                onChange={(e) => {
+                                                    const newShipping = parseFloat(e.target.value) || 0;
+                                                    const newTotal = taxInvoiceForm.subtotal - taxInvoiceForm.discount + newShipping;
+                                                    const newVat = newTotal * 7 / 107;
+                                                    const newPreVat = newTotal - newVat;
+                                                    setTaxInvoiceForm({
+                                                        ...taxInvoiceForm,
+                                                        shipping: newShipping,
+                                                        total: newTotal,
+                                                        vat: newVat,
+                                                        preVat: newPreVat
+                                                    });
+                                                }}
+                                                className="w-32 border rounded p-1 text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>มูลค่าก่อนภาษี:</span>
+                                            <span className="font-bold">{taxInvoiceForm.preVat.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>ภาษีมูลค่าเพิ่ม 7%:</span>
+                                            <span className="font-bold">{taxInvoiceForm.vat.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</span>
+                                        </div>
+                                        <div className="flex justify-between pt-2 border-t-2 border-emerald-600">
+                                            <span className="font-bold text-lg">ยอดสุทธิ:</span>
+                                            <span className="font-bold text-lg text-emerald-700">{taxInvoiceForm.total.toLocaleString(undefined, {minimumFractionDigits: 2})} บาท</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-5 border-t bg-white flex justify-end gap-3">
+                                <button
+                                    onClick={() => setIsTaxInvoiceModalOpen(false)}
+                                    className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition"
+                                >
+                                    ยกเลิก
+                                </button>
+                                {taxInvoiceRecordedStatus[editingOrderForTax.id]?.recorded && (
+                                    <button
+                                        onClick={() => {
+                                            setIsTaxInvoiceModalOpen(false);
+                                            handlePrintFullInvoice(editingOrderForTax);
+                                        }}
+                                        className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition"
+                                    >
+                                        <Icon icon="fa-print" className="mr-1" /> สั่งพิมพ์ใบกำกับ
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleSubmitTaxInvoiceData}
+                                    className="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition"
+                                >
+                                    <Icon icon="fa-save" className="mr-1" /> บันทึกข้อมูลภาษี
                                 </button>
                             </div>
                         </div>
