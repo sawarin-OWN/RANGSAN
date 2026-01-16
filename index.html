@@ -931,7 +931,7 @@
         
         // Real-time search for franchise stock log - debounce date changes
         useEffect(() => {
-            if (page === 'franchise_stock_log' && user?.customerType === 'franchise' && (franchiseStockLogStartDate || franchiseStockLogEndDate)) {
+            if (page === 'franchise_stock_log' && user?.customerType === 'franchise') {
                 const timeout = setTimeout(() => {
                     fetchFranchiseStockLog(true); // silent mode
                 }, 500); // 500ms debounce
@@ -4171,7 +4171,7 @@
                                                     setFranchiseStockLogStartDate('');
                                                     setFranchiseStockLogEndDate('');
                                                     setFranchiseStockLogSearchTerm('');
-                                                    fetchFranchiseStockLog(true); // silent mode
+                                                    // useEffect จะจัดการ fetch ให้อัตโนมัติเมื่อ state เปลี่ยน
                                                 }}
                                                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-bold text-sm flex items-center gap-2"
                                             >
